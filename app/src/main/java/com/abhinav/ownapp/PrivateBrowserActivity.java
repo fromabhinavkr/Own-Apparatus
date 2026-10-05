@@ -114,12 +114,13 @@ public class PrivateBrowserActivity extends AppCompatActivity {
     private RelativeLayout urlInputContainer;
     private LinearLayout searchCapsule;
     private EditText etSearchUrl;
-    private ProgressBar progressBar, pageLoadIndicator;
+    private ProgressBar progressBar;
 
     private boolean isDarkTheme;
     private int themeState;
 
-    private ImageView btnFront, btnGo, btnMenu, ivAutoScrollIcon, btnDismissSearch;
+    private ImageView btnFront, btnMenu, ivAutoScrollIcon, btnDismissSearch;
+    private SearchCubeView btnGo;
     private ImageView btnVideoPlayPause, btnVideoHide, btnVideoMute;
     private FrameLayout btnAutoScroll;
     private ProgressBar autoActionIndicator;
@@ -225,10 +226,7 @@ public class PrivateBrowserActivity extends AppCompatActivity {
                     if (filePathCallback == null) return;
                     Uri[] results = null;
                     if (result.getResultCode() == RESULT_OK && result.getData() != null) {
-                        // Attempt to parse standard intents (handles standard gallery & camera apps)
                         results = WebChromeClient.FileChooserParams.parseResult(result.getResultCode(), result.getData());
-
-                        // Fallback logic for weird OEM galleries (like Xiaomi/Samsung)
                         if (results == null) {
                             Intent data = result.getData();
                             if (data.getDataString() != null) {
@@ -267,10 +265,9 @@ public class PrivateBrowserActivity extends AppCompatActivity {
         urlInputContainer = findViewById(R.id.urlInputContainer);
         etSearchUrl = findViewById(R.id.etSearchUrl);
         progressBar = findViewById(R.id.browserProgressBar);
-        pageLoadIndicator = findViewById(R.id.pageLoadIndicator);
 
         btnFront = findViewById(R.id.btnBrowserFront);
-        btnGo = findViewById(R.id.btnBrowserGo);
+        btnGo = findViewById(R.id.btnBrowserGo); // Our custom view
         btnMenu = findViewById(R.id.btnBrowserMenu);
         btnAutoScroll = findViewById(R.id.btnAutoScroll);
         ivAutoScrollIcon = findViewById(R.id.ivAutoScrollIcon);
@@ -870,7 +867,7 @@ public class PrivateBrowserActivity extends AppCompatActivity {
     private void saveCustomShortcut(String name, String url) { try { JSONArray arr = new JSONArray(browserPrefs.getString(PREF_CUSTOM_LINKS, "[]")); JSONObject obj = new JSONObject(); obj.put("name", name); obj.put("url", url); arr.put(obj); browserPrefs.edit().putString(PREF_CUSTOM_LINKS, arr.toString()).apply(); renderHomeShortcuts(); } catch (Exception e) {} }
     private void showDeleteCustomShortcutDialog(int index, String name) { int dialogStyle = isDarkTheme ? android.R.style.Theme_DeviceDefault_Dialog_Alert : android.R.style.Theme_DeviceDefault_Light_Dialog_Alert; AlertDialog.Builder builder = new AlertDialog.Builder(this, dialogStyle); builder.setTitle("Remove Shortcut"); builder.setMessage("Remove '" + name + "' from shortcuts?"); builder.setPositiveButton("Remove", (dialog, which) -> { try { JSONArray arr = new JSONArray(browserPrefs.getString(PREF_CUSTOM_LINKS, "[]")); if (index >= 0 && index < arr.length()) { arr.remove(index); browserPrefs.edit().putString(PREF_CUSTOM_LINKS, arr.toString()).apply(); renderHomeShortcuts(); } } catch (Exception e) {} }); builder.setNegativeButton("Cancel", null); AlertDialog dialog = builder.create(); dialog.setOnShowListener(d -> styleDialogButtons(dialog)); dialog.show(); }
 
-    private int dp(int value) { return (int) (value * getResources().getDisplayMetrics().density + 0.5f); }
+    private int dp(float value) { return (int) (value * getResources().getDisplayMetrics().density + 0.5f); }
 
     private void updateBackgroundBlur() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -1531,7 +1528,6 @@ public class PrivateBrowserActivity extends AppCompatActivity {
         settings.setAllowFileAccess(true);
         settings.setAllowContentAccess(true);
 
-        // FIXED: Needed for reliable image loading from Local URIs (File/Content bounds)
         settings.setAllowFileAccessFromFileURLs(true);
         settings.setAllowUniversalAccessFromFileURLs(true);
 
@@ -1561,7 +1557,6 @@ public class PrivateBrowserActivity extends AppCompatActivity {
             @Override public void onShowCustomView(View view, CustomViewCallback callback) { enterFullscreenVideo(view, callback); }
             @Override public void onHideCustomView() { exitFullscreenVideo(); }
 
-            // FIXED: Added handling for Camera and Microphone prompts (WebRTC)
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
                 List<String> permissionsToRequest = new ArrayList<>();
@@ -1578,10 +1573,8 @@ public class PrivateBrowserActivity extends AppCompatActivity {
                 }
 
                 if (permissionsToRequest.isEmpty()) {
-                    // We already have native permissions, grant the WebView access immediately.
                     request.grant(request.getResources());
                 } else {
-                    // We need to request native permissions from the user.
                     mPendingPermissionRequest = request;
                     permissionLauncher.launch(permissionsToRequest.toArray(new String[0]));
                 }
@@ -1600,11 +1593,9 @@ public class PrivateBrowserActivity extends AppCompatActivity {
                 PrivateBrowserActivity.this.filePathCallback = filePathCallback;
 
                 try {
-                    // Use FileChooserParams to generate intent correctly (fixes camera intent capturing & native OEM bugs)
                     Intent intent = fileChooserParams.createIntent();
                     fileChooserLauncher.launch(intent);
                 } catch (Exception e) {
-                    // Fallback to explicit simple intent
                     Intent fallbackIntent = new Intent(Intent.ACTION_GET_CONTENT);
                     fallbackIntent.addCategory(Intent.CATEGORY_OPENABLE);
                     fallbackIntent.setType("*/*");
@@ -1618,7 +1609,18 @@ public class PrivateBrowserActivity extends AppCompatActivity {
                 return true;
             }
 
-            @Override public void onProgressChanged(WebView view, int newProgress) { if (view == getCurrentWeb()) { if (newProgress == 100) { progressBar.setVisibility(View.GONE); pageLoadIndicator.setVisibility(View.GONE); } else { progressBar.setVisibility(View.VISIBLE); progressBar.setProgress(newProgress); pageLoadIndicator.setVisibility(View.VISIBLE); } } }
+            @Override public void onProgressChanged(WebView view, int newProgress) {
+                if (view == getCurrentWeb()) {
+                    if (newProgress == 100) {
+                        progressBar.setVisibility(View.GONE);
+                        if(btnGo != null) btnGo.setLoading(false); // Triggers liquid morph out
+                    } else {
+                        progressBar.setVisibility(View.VISIBLE);
+                        progressBar.setProgress(newProgress);
+                        if(btnGo != null) btnGo.setLoading(true); // Triggers liquid morph in
+                    }
+                }
+            }
 
             @Override public void onReceivedTitle(WebView view, String title) {
                 super.onReceivedTitle(view, title);
@@ -1673,7 +1675,7 @@ public class PrivateBrowserActivity extends AppCompatActivity {
                 return super.onRenderProcessGone(view, detail);
             }
 
-            @Override public void onPageStarted(WebView view, String url, Bitmap favicon) { super.onPageStarted(view, url, favicon); isVideoCurrentlyPlaying = false; disableVideoMode(); if (view == getCurrentWeb()) { pageLoadIndicator.setVisibility(View.VISIBLE); } if (view == getCurrentWeb() && !isFullscreen) { if (url == null || url.equals("about:blank") || url.startsWith("http://startpage") || url.isEmpty()) { etSearchUrl.setText(""); showHomePage(); } else { hideHomePage(); etSearchUrl.setText(url); } } }
+            @Override public void onPageStarted(WebView view, String url, Bitmap favicon) { super.onPageStarted(view, url, favicon); isVideoCurrentlyPlaying = false; disableVideoMode(); if (view == getCurrentWeb()) { if(btnGo != null) btnGo.setLoading(true); } if (view == getCurrentWeb() && !isFullscreen) { if (url == null || url.equals("about:blank") || url.startsWith("http://startpage") || url.isEmpty()) { etSearchUrl.setText(""); showHomePage(); } else { hideHomePage(); etSearchUrl.setText(url); } } }
 
             @Override public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
@@ -1687,7 +1689,7 @@ public class PrivateBrowserActivity extends AppCompatActivity {
                 }
 
                 saveSession();
-                if (view == getCurrentWeb()) { pageLoadIndicator.setVisibility(View.GONE); } Boolean isDesktop = (Boolean) view.getTag(); if (isDesktop != null && isDesktop) { view.evaluateJavascript("try { var meta = document.querySelector('meta[name=\"viewport\"]'); if (meta) { meta.setAttribute('content', 'width=1024'); } else { var m = document.createElement('meta'); m.name = 'viewport'; m.content = 'width=1024'; document.head.appendChild(m); } } catch(e) {}", null); } view.evaluateJavascript("document.addEventListener('contextmenu', function(e) { if(e.target.tagName === 'VIDEO') { OwnBrowser.handleVideoLongPress(e.target.src || e.target.currentSrc); } });", null);
+                if (view == getCurrentWeb()) { if(btnGo != null) btnGo.setLoading(false); } Boolean isDesktop = (Boolean) view.getTag(); if (isDesktop != null && isDesktop) { view.evaluateJavascript("try { var meta = document.querySelector('meta[name=\"viewport\"]'); if (meta) { meta.setAttribute('content', 'width=1024'); } else { var m = document.createElement('meta'); m.name = 'viewport'; m.content = 'width=1024'; document.head.appendChild(m); } } catch(e) {}", null); } view.evaluateJavascript("document.addEventListener('contextmenu', function(e) { if(e.target.tagName === 'VIDEO') { OwnBrowser.handleVideoLongPress(e.target.src || e.target.currentSrc); } });", null);
                 String videoJs = "document.addEventListener('play', function(e){ if(e.target.tagName==='VIDEO'){ window.activeVideo=e.target; OwnBrowser.onVideoPlayState(true, e.target.muted); } }, true); document.addEventListener('pause', function(e){ if(e.target.tagName==='VIDEO' && window.activeVideo===e.target){ OwnBrowser.onVideoPlayState(false, e.target.muted); } }, true); document.addEventListener('volumechange', function(e){ if(e.target===window.activeVideo){ OwnBrowser.onVideoVolumeState(e.target.muted || e.target.volume === 0); } }, true); document.addEventListener('ended', function(e){ if(e.target.tagName==='VIDEO' && window.activeVideo===e.target){ window.activeVideo=null; OwnBrowser.onVideoEnded(); } }, true);";
                 view.evaluateJavascript(videoJs, null);
             }
@@ -1712,7 +1714,8 @@ public class PrivateBrowserActivity extends AppCompatActivity {
         tabsOverlay.setBackgroundColor(overlayGlassColor); downloadsOverlay.setBackgroundColor(overlayGlassColor); homeOverlay.setBackgroundColor(bgColor);
 
         etSearchUrl.setTextColor(textColor); etSearchUrl.setHintTextColor(hintColor);
-        btnFront.setColorFilter(textColor); btnGo.setColorFilter(textColor); btnMenu.setColorFilter(textColor); ivAutoScrollIcon.setColorFilter(textColor); btnDismissSearch.setColorFilter(textColor);
+        btnFront.setColorFilter(textColor); btnGo.setColor(textColor);
+        btnMenu.setColorFilter(textColor); ivAutoScrollIcon.setColorFilter(textColor); btnDismissSearch.setColorFilter(textColor);
         btnFullscreenToggle.setColorFilter(textColor);
         btnVideoPlayPause.setColorFilter(textColor); btnVideoHide.setColorFilter(textColor); btnVideoMute.setColorFilter(textColor);
 

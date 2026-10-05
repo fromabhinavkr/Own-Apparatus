@@ -140,7 +140,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:minHeight="43dp"
-                android:layout_toStartOf="@id/goBtnFrame"
+                android:layout_toStartOf="@id/btnBrowserGo"
                 android:layout_centerVertical="true"
                 android:background="@null"
                 android:hint="Search here"
@@ -152,30 +152,15 @@
                 android:imeOptions="actionGo"
                 android:inputType="textUri" />
 
-            <FrameLayout
-                android:id="@+id/goBtnFrame"
+            <!-- Replaced circular loader with our 3D custom animated view -->
+            <com.abhinav.ownapp.SearchCubeView
+                android:id="@+id/btnBrowserGo"
                 android:layout_width="36dp"
                 android:layout_height="36dp"
                 android:layout_alignParentEnd="true"
-                android:layout_centerVertical="true">
+                android:layout_centerVertical="true"
+                android:background="?selectableItemBackgroundBorderless"/>
 
-                <ImageView
-                    android:id="@+id/btnBrowserGo"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:padding="8dp"
-                    android:src="@android:drawable/ic_menu_search"
-                    android:background="?selectableItemBackgroundBorderless"/>
-
-                <ProgressBar
-                    android:id="@+id/pageLoadIndicator"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:indeterminate="true"
-                    android:indeterminateTint="#00E676"
-                    android:padding="2dp"
-                    android:visibility="gone" />
-            </FrameLayout>
         </RelativeLayout>
 
         <ImageView
@@ -264,10 +249,6 @@
             android:layout_height="wrap_content"
             android:layout_marginBottom="16dp">
 
-            <!-- THE SQUIRCLE FIX:
-                 1. PaddingStart is 8dp so it physically clears the curve of the parent pill.
-                 2. Size is locked exactly to 32dp.
-                 3. scaleType="fitXY" forces the vector to map flawlessly to the square space. -->
             <LinearLayout
                 android:id="@+id/btnAddNewTab"
                 android:layout_width="wrap_content"
