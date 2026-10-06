@@ -7,6 +7,7 @@ import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -39,6 +40,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.RelativeLayout;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -418,12 +420,11 @@ public class StickerMakerActivity extends AppCompatActivity {
 
         float density = getResources().getDisplayMetrics().density;
         int screenWidth = getResources().getDisplayMetrics().widthPixels;
-        int rootPadding = (int) (80 * density); // 40dp padding on each side of main card roughly
+        int rootPadding = (int) (80 * density);
         int itemMargin = (int) (6 * density);
         int totalMargins = itemMargin * 6;
         int itemSize = (screenWidth - rootPadding - totalMargins) / 3;
 
-        // --- ADD DASHED BOX FIRST ---
         if (stickerCount < 30) {
             addDashedAddButton(itemSize, itemMargin);
         }
@@ -441,11 +442,10 @@ public class StickerMakerActivity extends AppCompatActivity {
             }
         }
 
-        // Update Status indicator styling
         GradientDrawable dotGd = new GradientDrawable();
         dotGd.setShape(GradientDrawable.OVAL);
         if (stickerCount < 3) {
-            dotGd.setColor(Color.parseColor("#FF3B30")); // Red
+            dotGd.setColor(Color.parseColor("#FF3B30"));
             tvStatusText.setText(stickerCount + " / 3 Stickers (Min)");
             tvStatusText.setTextColor(Color.parseColor("#FF3B30"));
             btnAddWA.setAlpha(0.4f);
@@ -460,7 +460,6 @@ public class StickerMakerActivity extends AppCompatActivity {
         statusDot.setBackground(dotGd);
     }
 
-    // --- DRAG AND DROP REORDER SYSTEM IMPLEMENTED HERE ---
     private void addStickerToGrid(File file, Bitmap bitmap, int itemSize, int itemMargin) {
         RelativeLayout frame = new RelativeLayout(this);
         GridLayout.LayoutParams params = new GridLayout.LayoutParams();
@@ -482,10 +481,9 @@ public class StickerMakerActivity extends AppCompatActivity {
         iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
         frame.addView(iv, ivLp);
 
-        // Circular Trash Icon on Bottom Right
         FrameLayout trashBtn = new FrameLayout(this);
         GradientDrawable trashGd = new GradientDrawable();
-        trashGd.setColor(Color.parseColor("#E6111827")); // Always dark so white icon pops
+        trashGd.setColor(Color.parseColor("#E6111827"));
         trashGd.setShape(GradientDrawable.OVAL);
         trashGd.setStroke(2, glassBorderColor);
         trashBtn.setBackground(trashGd);
@@ -514,7 +512,6 @@ public class StickerMakerActivity extends AppCompatActivity {
 
         frame.addView(trashBtn);
 
-        // Setup Drag & Drop Handlers for Reordering
         frame.setOnLongClickListener(v -> {
             View.DragShadowBuilder shadow = new View.DragShadowBuilder(v);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -666,7 +663,11 @@ public class StickerMakerActivity extends AppCompatActivity {
 
     private void showVisualCropStudio(Uri mediaUri) {
         float density = getResources().getDisplayMetrics().density;
-        int p = (int) (24 * density); // Dynamic padding
+        int p = (int) (24 * density);
+
+        final int[] currentCropMode = {0}; // 0=Free, 1=1:1, 2=Oval, 3=Circle
+        final float[] cornerRadiusProgress = {0f}; // 0.0 to 100.0
+        final int[] smoothLevelProgress = {0}; // 0 to 4 (Level 1 to 5)
 
         AlertDialog.Builder builder = new AlertDialog.Builder(this, R.style.ModernDialogStyle);
         LinearLayout layout = new LinearLayout(this);
@@ -684,10 +685,13 @@ public class StickerMakerActivity extends AppCompatActivity {
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER);
         header.setPadding(0, 0, 0, (int)(16 * density));
-        FrameLayout iconScissors = new FrameLayout(this);
+
+        ImageView iconScissors = new ImageView(this);
         iconScissors.setLayoutParams(new LinearLayout.LayoutParams((int)(24 * density), (int)(24 * density)));
-        iconScissors.addView(new StickerIconView(this, StickerIconView.ICON_SCISSORS, accentColor));
+        iconScissors.setImageResource(R.drawable.ic_scissors);
+        iconScissors.setColorFilter(accentColor, android.graphics.PorterDuff.Mode.SRC_IN);
         header.addView(iconScissors);
+
         TextView title = new TextView(this);
         title.setText(" Grid Sticker Studio");
         title.setTextSize(18f);
@@ -696,39 +700,137 @@ public class StickerMakerActivity extends AppCompatActivity {
         header.addView(title);
         layout.addView(header);
 
-        FrameLayout previewBox = new FrameLayout(this);
+        // --- Layout setup ---
         int boxSize = (int) (300 * density);
+
+        FrameLayout wrapper = new FrameLayout(this);
         LinearLayout.LayoutParams boxLp = new LinearLayout.LayoutParams(boxSize, boxSize);
         boxLp.gravity = Gravity.CENTER;
-        boxLp.setMargins(0, (int)(4 * density), 0, (int)(24 * density));
-        previewBox.setLayoutParams(boxLp);
+        boxLp.setMargins(0, (int)(4 * density), 0, (int)(16 * density));
+        wrapper.setLayoutParams(boxLp);
         GradientDrawable boxGd = new GradientDrawable();
         boxGd.setColor(isDarkTheme ? Color.parseColor("#141414") : Color.parseColor("#F8F8F8"));
-        boxGd.setStroke(4, accentColor);
-        boxGd.setCornerRadius(25f);
-        previewBox.setBackground(boxGd);
+        wrapper.setBackground(boxGd);
+
+        // This view uses software bitmaps internally to perfectly clip and blur the image live
+        FrameLayout previewBox = new FrameLayout(this) {
+            Bitmap offscreen, maskBmp;
+            Canvas osCanvas, maskCanvas;
+            Paint dstInPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            Paint maskPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            {
+                dstInPaint.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN));
+                maskPaint.setColor(Color.BLACK);
+            }
+
+            @Override
+            protected void dispatchDraw(Canvas canvas) {
+                int w = getWidth(), h = getHeight();
+                if (w <= 0 || h <= 0) return;
+
+                if (offscreen == null || offscreen.getWidth() != w || offscreen.getHeight() != h) {
+                    if (offscreen != null) offscreen.recycle();
+                    if (maskBmp != null) maskBmp.recycle();
+                    offscreen = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+                    maskBmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+                    osCanvas = new Canvas(offscreen);
+                    maskCanvas = new Canvas(maskBmp);
+                }
+
+                // Clean the software buffers
+                offscreen.eraseColor(Color.TRANSPARENT);
+                maskBmp.eraseColor(Color.TRANSPARENT);
+
+                // Draw the actual image layer to our custom buffer
+                super.dispatchDraw(osCanvas);
+
+                // Build the precise shape path
+                Path clipPath = new Path();
+                if (currentCropMode[0] == 2 || currentCropMode[0] == 3) {
+                    clipPath.addOval(new RectF(0, 0, w, h), Path.Direction.CW);
+                } else {
+                    float maxRadius = Math.min(w, h) / 2f;
+                    float rx = maxRadius * (cornerRadiusProgress[0] / 100f);
+                    clipPath.addRoundRect(new RectF(0, 0, w, h), rx, rx, Path.Direction.CW);
+                }
+
+                // Apply Mask and Optional Blur to the mask canvas
+                int smooth = smoothLevelProgress[0];
+                if (smooth == 0) {
+                    maskPaint.setMaskFilter(null);
+                    maskCanvas.drawPath(clipPath, maskPaint);
+                } else {
+                    float baseBlur = 0f;
+                    if (smooth == 1) baseBlur = 15f;
+                    else if (smooth == 2) baseBlur = 35f;
+                    else if (smooth == 3) baseBlur = 60f;
+                    else if (smooth == 4) baseBlur = 100f;
+
+                    float scale = (float) Math.max(w, h) / 512f;
+                    maskPaint.setMaskFilter(new android.graphics.BlurMaskFilter(baseBlur * scale, android.graphics.BlurMaskFilter.Blur.NORMAL));
+
+                    maskCanvas.save();
+                    // Clip the mask canvas so the blur fades inward from transparent edge to opaque center
+                    maskCanvas.clipPath(clipPath);
+                    maskCanvas.drawPath(clipPath, maskPaint);
+                    maskCanvas.restore();
+                }
+
+                // Composite the mask onto the image
+                osCanvas.drawBitmap(maskBmp, 0, 0, dstInPaint);
+
+                // Draw the composited layer safely back to hardware screen
+                canvas.drawBitmap(offscreen, 0, 0, null);
+            }
+        };
+        previewBox.setLayoutParams(new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         ImageView iv = new ImageView(this);
         iv.setLayoutParams(new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         iv.setScaleType(ImageView.ScaleType.MATRIX);
         previewBox.addView(iv);
+        wrapper.addView(previewBox);
 
+        // Dynamic Grid Overlay
         View gridOverlay = new View(this) {
             final Paint paintLines = new Paint(Paint.ANTI_ALIAS_FLAG) {{ setColor(Color.WHITE); setStrokeWidth(2f); setAlpha(160); }};
             final Paint border = new Paint(Paint.ANTI_ALIAS_FLAG) {{ setColor(accentColor); setStyle(Paint.Style.STROKE); setStrokeWidth(6f); }};
+
             @Override protected void onDraw(Canvas c) {
                 super.onDraw(c);
                 int w = getWidth(), h = getHeight();
+                if (w == 0 || h == 0) return;
+
+                Path clipPath = new Path();
+                if (currentCropMode[0] == 2 || currentCropMode[0] == 3) {
+                    clipPath.addOval(new RectF(0, 0, w, h), Path.Direction.CW);
+                } else {
+                    float maxRadius = Math.min(w, h) / 2f;
+                    float rx = maxRadius * (cornerRadiusProgress[0] / 100f);
+                    clipPath.addRoundRect(new RectF(0, 0, w, h), rx, rx, Path.Direction.CW);
+                }
+
+                c.save();
+                c.clipPath(clipPath);
                 c.drawLine(w / 3f, 0, w / 3f, h, paintLines);
                 c.drawLine(w * 2 / 3f, 0, w * 2 / 3f, h, paintLines);
                 c.drawLine(0, h / 3f, w, h / 3f, paintLines);
                 c.drawLine(0, h * 2 / 3f, w, h * 2 / 3f, paintLines);
-                c.drawRect(0, 0, w, h, border);
+                c.restore();
+
+                float inset = border.getStrokeWidth() / 2f;
+                if (currentCropMode[0] == 2 || currentCropMode[0] == 3) {
+                    c.drawOval(new RectF(inset, inset, w - inset, h - inset), border);
+                } else {
+                    float maxRadius = Math.min(w, h) / 2f;
+                    float rx = maxRadius * (cornerRadiusProgress[0] / 100f);
+                    c.drawRoundRect(new RectF(inset, inset, w - inset, h - inset), rx, rx, border);
+                }
             }
         };
         gridOverlay.setLayoutParams(new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        previewBox.addView(gridOverlay);
-        layout.addView(previewBox);
+        wrapper.addView(gridOverlay);
+        layout.addView(wrapper);
 
         final Bitmap[] previewBmp = {null};
         ProgressBar pb = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
@@ -741,42 +843,159 @@ public class StickerMakerActivity extends AppCompatActivity {
                 if (previewBmp[0] != null) {
                     runOnUiThread(() -> {
                         iv.setImageBitmap(previewBmp[0]);
-                        setupTouchAndPresets(iv, previewBmp[0], previewBox, boxSize);
+                        setupTouchAndPresets(iv, previewBmp[0], wrapper, boxSize, currentCropMode[0]);
                     });
                 }
             } catch (Exception ignored) {}
         }).start();
 
-        // Ratio Presets
+        // --- CORNER RADIUS SLIDER ---
+        LinearLayout radiusRow = new LinearLayout(this);
+        radiusRow.setOrientation(LinearLayout.HORIZONTAL);
+        radiusRow.setGravity(Gravity.CENTER_VERTICAL);
+        radiusRow.setPadding((int)(4*density), 0, (int)(4*density), (int)(12*density));
+
+        TextView tvRadius = new TextView(this);
+        tvRadius.setText("Corners");
+        tvRadius.setTextColor(textColor);
+        tvRadius.setTypeface(null, Typeface.BOLD);
+        tvRadius.setTextSize(13f);
+        tvRadius.setMinimumWidth((int)(60 * density));
+        radiusRow.addView(tvRadius);
+
+        SeekBar seekBarRadius = new SeekBar(this);
+        LinearLayout.LayoutParams sbLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        sbLp.setMargins((int)(12 * density), 0, 0, 0);
+        seekBarRadius.setLayoutParams(sbLp);
+        seekBarRadius.setMax(100);
+        seekBarRadius.setProgress(0);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            seekBarRadius.setProgressTintList(ColorStateList.valueOf(accentColor));
+            seekBarRadius.setThumbTintList(ColorStateList.valueOf(accentColor));
+        }
+        seekBarRadius.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                cornerRadiusProgress[0] = progress;
+                previewBox.invalidate();
+                gridOverlay.invalidate();
+            }
+            @Override public void onStartTrackingTouch(SeekBar seekBar) {}
+            @Override public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
+        radiusRow.addView(seekBarRadius);
+        layout.addView(radiusRow);
+
+        // --- SMOOTHNESS SLIDER (1 to 5 levels mapped to 0 to 4) ---
+        LinearLayout smoothRow = new LinearLayout(this);
+        smoothRow.setOrientation(LinearLayout.HORIZONTAL);
+        smoothRow.setGravity(Gravity.CENTER_VERTICAL);
+        smoothRow.setPadding((int)(4*density), 0, (int)(4*density), (int)(16*density));
+
+        TextView tvSmooth = new TextView(this);
+        tvSmooth.setText("Smooth");
+        tvSmooth.setTextColor(textColor);
+        tvSmooth.setTypeface(null, Typeface.BOLD);
+        tvSmooth.setTextSize(13f);
+        tvSmooth.setMinimumWidth((int)(60 * density));
+        smoothRow.addView(tvSmooth);
+
+        SeekBar seekBarSmooth = new SeekBar(this);
+        LinearLayout.LayoutParams sbSmoothLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        sbSmoothLp.setMargins((int)(12 * density), 0, 0, 0);
+        seekBarSmooth.setLayoutParams(sbSmoothLp);
+        seekBarSmooth.setMax(4);
+        seekBarSmooth.setProgress(0);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            seekBarSmooth.setProgressTintList(ColorStateList.valueOf(accentColor));
+            seekBarSmooth.setThumbTintList(ColorStateList.valueOf(accentColor));
+        }
+
+        // --- LEVEL MARKINGS (DOTS) ---
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            GradientDrawable tick = new GradientDrawable();
+            tick.setShape(GradientDrawable.OVAL);
+            tick.setSize((int)(6 * density), (int)(6 * density));
+            tick.setColor(Color.parseColor("#888888"));
+            seekBarSmooth.setTickMark(tick);
+            seekBarSmooth.setTickMarkTintList(null);
+        }
+
+        seekBarSmooth.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                smoothLevelProgress[0] = progress;
+                previewBox.invalidate();
+            }
+            @Override public void onStartTrackingTouch(SeekBar seekBar) {}
+            @Override public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
+        smoothRow.addView(seekBarSmooth);
+        layout.addView(smoothRow);
+
+        // --- RATIO / SHAPE PRESETS ---
         LinearLayout chipRow = new LinearLayout(this);
         chipRow.setOrientation(LinearLayout.HORIZONTAL);
         chipRow.setGravity(Gravity.CENTER);
-        chipRow.setPadding(0, (int)(4 * density), 0, (int)(16 * density));
-        String[] cNames = {"Original", "1:1"};
-        for (int i = 0; i < 2; i++) {
+        chipRow.setPadding(0, 0, 0, (int)(16 * density));
+
+        String[] cNames = {"Free", "1:1", "Oval", "Circle"};
+        final Button[] chipBtns = new Button[4];
+
+        for (int i = 0; i < 4; i++) {
             Button b = new Button(this);
             b.setText(cNames[i]);
-            b.setTextSize(13f);
+            b.setTextSize(11f);
             b.setAllCaps(false);
             b.setTypeface(null, Typeface.BOLD);
-            b.setTextColor(textColor);
-            // --- REMOVE BUTTON SHADOWS (ELEVATION) ---
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 b.setStateListAnimator(null);
                 b.setElevation(0);
             }
+
             GradientDrawable cGd = new GradientDrawable();
-            cGd.setColor(panelColor);
             cGd.setCornerRadius(100f);
             cGd.setStroke(2, glassBorderColor);
+
+            if (i == 0) {
+                cGd.setColor(accentColor);
+                b.setTextColor(isDarkTheme ? Color.BLACK : Color.WHITE);
+            } else {
+                cGd.setColor(panelColor);
+                b.setTextColor(textColor);
+            }
             b.setBackgroundTintList(null);
             b.setBackground(cGd);
-            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(0, (int)(48 * density), 1f);
-            clp.setMargins((int)(10 * density), 0, (int)(10 * density), 0);
+
+            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(0, (int)(44 * density), 1f);
+            clp.setMargins((int)(4 * density), 0, (int)(4 * density), 0);
             b.setLayoutParams(clp);
+            chipBtns[i] = b;
+
             int finalI = i;
             b.setOnClickListener(v -> {
-                if (previewBmp[0] != null) applyRatioChipMatrix(iv, previewBmp[0], previewBox, boxSize, finalI);
+                if (previewBmp[0] != null) {
+                    currentCropMode[0] = finalI;
+                    for (int j = 0; j < 4; j++) {
+                        GradientDrawable gdBtn = (GradientDrawable) chipBtns[j].getBackground();
+                        if (j == finalI) {
+                            gdBtn.setColor(accentColor);
+                            chipBtns[j].setTextColor(isDarkTheme ? Color.BLACK : Color.WHITE);
+                        } else {
+                            gdBtn.setColor(panelColor);
+                            chipBtns[j].setTextColor(textColor);
+                        }
+                    }
+
+                    seekBarRadius.setEnabled(finalI < 2);
+                    seekBarRadius.setAlpha((finalI < 2) ? 1.0f : 0.4f);
+
+                    // Re-bind touch events entirely so matrix isn't broken by the new shape constraint!
+                    setupTouchAndPresets(iv, previewBmp[0], wrapper, boxSize, finalI);
+                    previewBox.invalidate();
+                    gridOverlay.invalidate();
+                }
             });
             chipRow.addView(b);
         }
@@ -787,30 +1006,47 @@ public class StickerMakerActivity extends AppCompatActivity {
         toolsRow.setOrientation(LinearLayout.HORIZONTAL);
         toolsRow.setGravity(Gravity.CENTER);
         toolsRow.setPadding(0, 0, 0, (int)(24 * density));
-        String[] tNames = {"Rotate", "Flip ↔", "Flip ↕"};
+        String[] tNames = {"Rotate", "Flip H", "Flip V"};
         for (int i = 0; i < 3; i++) {
-            Button b = new Button(this);
-            b.setText(tNames[i]);
-            b.setTextSize(12f);
-            b.setAllCaps(false);
-            b.setTypeface(null, Typeface.BOLD);
-            b.setTextColor(textColor);
-            // --- REMOVE BUTTON SHADOWS (ELEVATION) ---
+            LinearLayout bLayout = new LinearLayout(this);
+            bLayout.setOrientation(LinearLayout.HORIZONTAL);
+            bLayout.setGravity(Gravity.CENTER);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                b.setStateListAnimator(null);
-                b.setElevation(0);
+                bLayout.setElevation(0);
             }
             GradientDrawable tGd = new GradientDrawable();
             tGd.setColor(panelColor);
             tGd.setCornerRadius(100f);
             tGd.setStroke(2, glassBorderColor);
-            b.setBackgroundTintList(null);
-            b.setBackground(tGd);
+            bLayout.setBackground(tGd);
+            bLayout.setClickable(true);
+            bLayout.setFocusable(true);
+
             LinearLayout.LayoutParams tLp = new LinearLayout.LayoutParams(0, (int)(48 * density), 1f);
             tLp.setMargins((int)(5 * density), 0, (int)(5 * density), 0);
-            b.setLayoutParams(tLp);
+            bLayout.setLayoutParams(tLp);
+
+            if (i == 1 || i == 2) {
+                ImageView ivIcon = new ImageView(this);
+                ivIcon.setImageResource(R.drawable.ic_flip);
+                ivIcon.setColorFilter(textColor, android.graphics.PorterDuff.Mode.SRC_IN);
+                int icSize = (int)(18 * density);
+                LinearLayout.LayoutParams icLp = new LinearLayout.LayoutParams(icSize, icSize);
+                icLp.setMargins(0, 0, (int)(6 * density), 0);
+                ivIcon.setLayoutParams(icLp);
+                if (i == 2) ivIcon.setRotation(90f);
+                bLayout.addView(ivIcon);
+            }
+
+            TextView tv = new TextView(this);
+            tv.setText(tNames[i]);
+            tv.setTextSize(12f);
+            tv.setTypeface(null, Typeface.BOLD);
+            tv.setTextColor(textColor);
+            bLayout.addView(tv);
+
             int finalI = i;
-            b.setOnClickListener(v -> {
+            bLayout.setOnClickListener(v -> {
                 if (previewBmp[0] != null) {
                     pb.setVisibility(View.VISIBLE);
                     new Thread(() -> {
@@ -826,13 +1062,15 @@ public class StickerMakerActivity extends AppCompatActivity {
                         }
                         runOnUiThread(() -> {
                             iv.setImageBitmap(previewBmp[0]);
-                            setupTouchAndPresets(iv, previewBmp[0], previewBox, boxSize);
+                            setupTouchAndPresets(iv, previewBmp[0], wrapper, boxSize, currentCropMode[0]);
+                            previewBox.invalidate();
+                            gridOverlay.invalidate();
                             pb.setVisibility(View.GONE);
                         });
                     }).start();
                 }
             });
-            toolsRow.addView(b);
+            toolsRow.addView(bLayout);
         }
         layout.addView(toolsRow);
 
@@ -845,7 +1083,6 @@ public class StickerMakerActivity extends AppCompatActivity {
         btnCancel.setText("CANCEL");
         btnCancel.setTextColor(Color.WHITE);
         btnCancel.setTypeface(null, Typeface.BOLD);
-        // --- REMOVE BUTTON SHADOWS (ELEVATION) ---
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             btnCancel.setStateListAnimator(null);
             btnCancel.setElevation(0);
@@ -863,7 +1100,6 @@ public class StickerMakerActivity extends AppCompatActivity {
         btnBuild.setText("COMPILE STICKER");
         btnBuild.setTextColor(isDarkTheme ? Color.BLACK : Color.WHITE);
         btnBuild.setTypeface(null, Typeface.BOLD);
-        // --- REMOVE BUTTON SHADOWS (ELEVATION) ---
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             btnBuild.setStateListAnimator(null);
             btnBuild.setElevation(0);
@@ -892,8 +1128,8 @@ public class StickerMakerActivity extends AppCompatActivity {
             btnBuild.setEnabled(false);
             btnCancel.setEnabled(false);
             Matrix userMatrix = new Matrix(iv.getImageMatrix());
-            int boxW = previewBox.getWidth() > 0 ? previewBox.getWidth() : boxSize;
-            int boxH = previewBox.getHeight() > 0 ? previewBox.getHeight() : boxSize;
+            int boxW = wrapper.getWidth() > 0 ? wrapper.getWidth() : boxSize;
+            int boxH = wrapper.getHeight() > 0 ? wrapper.getHeight() : boxSize;
             new Thread(() -> {
                 try {
                     File dir = new File(getFilesDir(), "stickers/" + currentPackId);
@@ -915,7 +1151,9 @@ public class StickerMakerActivity extends AppCompatActivity {
 
                     Bitmap orig = previewBmp[0];
                     if (orig == null) throw new Exception();
-                    Bitmap cropped = applyMatrixToSticker(orig, userMatrix, boxW, boxH);
+
+                    Bitmap cropped = applyMatrixToSticker(orig, userMatrix, boxW, boxH, currentCropMode[0], cornerRadiusProgress[0], smoothLevelProgress[0]);
+
                     FileOutputStream outSticker = new FileOutputStream(tmpFile);
                     cropped.compress(webpFormat, 75, outSticker);
                     outSticker.close();
@@ -943,15 +1181,17 @@ public class StickerMakerActivity extends AppCompatActivity {
         dialog.show();
     }
 
-    private void setupTouchAndPresets(ImageView iv, Bitmap bmp, FrameLayout previewBox, int boxSize) {
-        applyRatioChipMatrix(iv, bmp, previewBox, boxSize, 0);
+    private void setupTouchAndPresets(ImageView iv, Bitmap bmp, FrameLayout container, int boxSize, int cropMode) {
+        applyRatioChipMatrix(iv, bmp, container, boxSize, cropMode);
         final Matrix matrix = new Matrix(iv.getImageMatrix());
         final Matrix savedMatrix = new Matrix();
         final PointF start = new PointF();
         final PointF mid = new PointF();
         final float[] oldDist = {1f};
         final int[] mode = {0};
-        iv.setOnTouchListener((v, event) -> {
+
+        // Attached to TOP container to prevent Views from intercepting the pinch gesture
+        container.setOnTouchListener((v, event) -> {
             switch (event.getAction() & MotionEvent.ACTION_MASK) {
                 case MotionEvent.ACTION_DOWN:
                     savedMatrix.set(matrix);
@@ -977,33 +1217,44 @@ public class StickerMakerActivity extends AppCompatActivity {
                     } else if (mode[0] == 2) {
                         float newDist = spacing(event);
                         if (newDist > 10f) {
-                            float scale = newDist / oldDist[0];
                             matrix.set(savedMatrix);
+                            float scale = newDist / oldDist[0];
                             matrix.postScale(scale, scale, mid.x, mid.y);
+
+                            // Allows the image to PAN while zooming to keep it centered under your fingers perfectly
+                            PointF newMid = new PointF();
+                            midPoint(newMid, event);
+                            matrix.postTranslate(newMid.x - mid.x, newMid.y - mid.y);
                         }
                     }
                     break;
             }
             iv.setImageMatrix(matrix);
+            iv.invalidate();
+            ((View)iv.getParent()).invalidate(); // Forces the software canvas to redraw
+            container.invalidate();
             return true;
         });
     }
 
-    private void applyRatioChipMatrix(ImageView iv, Bitmap bmp, FrameLayout previewBox, int maxBoxSize, int chipIdx) {
+    private void applyRatioChipMatrix(ImageView iv, Bitmap bmp, FrameLayout container, int maxBoxSize, int cropMode) {
         Matrix m = new Matrix();
         int bw = bmp.getWidth(), bh = bmp.getHeight();
         float ratio = (float) bw / bh;
         int targetW = maxBoxSize, targetH = maxBoxSize;
-        if (chipIdx == 0) {
+
+        if (cropMode == 0 || cropMode == 2) {
             if (ratio >= 1f) targetH = Math.max(200, (int) (maxBoxSize / ratio));
             else targetW = Math.max(200, (int) (maxBoxSize * ratio));
         }
-        LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) previewBox.getLayoutParams();
+
+        LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) container.getLayoutParams();
         lp.width = targetW;
         lp.height = targetH;
-        previewBox.setLayoutParams(lp);
-        previewBox.requestLayout();
-        if (chipIdx == 0) {
+        container.setLayoutParams(lp);
+        container.requestLayout();
+
+        if (cropMode == 0 || cropMode == 2) {
             float scale = (float) targetW / bw;
             m.postScale(scale, scale);
         } else {
@@ -1014,16 +1265,59 @@ public class StickerMakerActivity extends AppCompatActivity {
         iv.setImageMatrix(m);
     }
 
-    private Bitmap applyMatrixToSticker(Bitmap orig, Matrix userMatrix, int boxW, int boxH) {
+    private Bitmap applyMatrixToSticker(Bitmap orig, Matrix userMatrix, int boxW, int boxH, int cropMode, float radiusProgress, int smoothLevel) {
         Bitmap finalBmp = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(finalBmp);
         int maxDim = Math.max(boxW, boxH);
         float scale = 512f / maxDim;
         float dx = (512f - (boxW * scale)) / 2f;
         float dy = (512f - (boxH * scale)) / 2f;
+
+        canvas.save();
         canvas.translate(dx, dy);
         canvas.scale(scale, scale);
         canvas.drawBitmap(orig, userMatrix, new Paint(Paint.FILTER_BITMAP_FLAG));
+        canvas.restore();
+
+        Path clipPath = new Path();
+        float fw = boxW * scale;
+        float fh = boxH * scale;
+
+        if (cropMode == 2 || cropMode == 3) {
+            clipPath.addOval(new RectF(dx, dy, dx + fw, dy + fh), Path.Direction.CW);
+        } else {
+            float maxRadius = Math.min(fw, fh) / 2f;
+            float rx = maxRadius * (radiusProgress / 100f);
+            clipPath.addRoundRect(new RectF(dx, dy, dx + fw, dy + fh), rx, rx, Path.Direction.CW);
+        }
+
+        Bitmap maskBmp = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888);
+        Canvas maskCanvas = new Canvas(maskBmp);
+        Paint maskPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        maskPaint.setColor(Color.BLACK);
+
+        if (smoothLevel > 0) {
+            float blurRadius = 0f;
+            if (smoothLevel == 1) blurRadius = 15f;
+            else if (smoothLevel == 2) blurRadius = 35f;
+            else if (smoothLevel == 3) blurRadius = 60f;
+            else if (smoothLevel == 4) blurRadius = 100f;
+
+            maskPaint.setMaskFilter(new android.graphics.BlurMaskFilter(blurRadius, android.graphics.BlurMaskFilter.Blur.NORMAL));
+
+            maskCanvas.save();
+            maskCanvas.clipPath(clipPath);
+            maskCanvas.drawPath(clipPath, maskPaint);
+            maskCanvas.restore();
+        } else {
+            maskCanvas.drawPath(clipPath, maskPaint);
+        }
+
+        Paint dstInPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        dstInPaint.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN));
+        canvas.drawBitmap(maskBmp, 0, 0, dstInPaint);
+
+        maskBmp.recycle();
         return finalBmp;
     }
 
@@ -1067,7 +1361,6 @@ public class StickerMakerActivity extends AppCompatActivity {
         }
     }
 
-    // --- PURE VECTOR SHAPE ENGINE (ZERO EMOJIS, ZERO IMAGES) ---
     public static class StickerIconView extends View {
         public static final int ICON_PACK = 0;
         public static final int ICON_ADD = 1;

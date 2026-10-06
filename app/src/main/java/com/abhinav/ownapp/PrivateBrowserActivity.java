@@ -133,6 +133,7 @@ public class PrivateBrowserActivity extends AppCompatActivity {
     private boolean isFullscreen = false;
     private boolean isVideoMode = false;
     private boolean isVideoCapsuleHidden = false;
+    private boolean isBrowserLoaded = false;
 
     private boolean isVideoCurrentlyPlaying = false;
     private boolean isVideoCurrentlyMuted = false;
@@ -143,11 +144,9 @@ public class PrivateBrowserActivity extends AppCompatActivity {
 
     private SharedPreferences prefs, browserPrefs;
 
-    // File chooser support for gallery/image uploads (e.g., Instagram)
     private ValueCallback<Uri[]> filePathCallback;
     private ActivityResultLauncher<Intent> fileChooserLauncher;
 
-    // WebRTC Permissions (Camera & Mic) support
     private ActivityResultLauncher<String[]> permissionLauncher;
     private PermissionRequest mPendingPermissionRequest;
 
@@ -196,8 +195,70 @@ public class PrivateBrowserActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
+
+        // 1. Instant Open for Seamless Splash Integration
+        overridePendingTransition(0, 0);
+
+        // 2. Keep the window transparent so the CLOSING circular reveal works flawlessly!
+        getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        }
+
         setContentView(R.layout.activity_private_browser);
+
+        // --- READ THEME STATE EARLY FOR SPLASH SCREEN ---
+        prefs = getSharedPreferences("SnakeWidgetPrefs", MODE_PRIVATE);
+        browserPrefs = getSharedPreferences(BROWSER_PREFS, MODE_PRIVATE);
+        themeState = prefs.getInt("app_theme_state", -1);
+        if (themeState == -1) themeState = prefs.getBoolean("is_dark_theme", true) ? 1 : 0;
+        isDarkTheme = (themeState != 0);
+
+        // --- BUTTER-SMOOTH SPLASH SCREEN OVERLAY ---
+        int splashBgColor = (themeState == 0) ? Color.parseColor("#FFFFFF") :
+                (themeState == 1) ? Color.parseColor("#1C1C1E") : Color.parseColor("#000000");
+
+        FrameLayout splashOverlay = new FrameLayout(this);
+        splashOverlay.setBackgroundColor(splashBgColor);
+        splashOverlay.setElevation(dp(100)); // Ensure it's perfectly on top
+        splashOverlay.setClickable(true);    // Block unwanted touches during load
+
+        ImageView splashLogo = new ImageView(this);
+        // Safely fetch your egg logo, fallback to squircle/launcher if not found.
+        // Change "ic_browser_logo" if your actual egg image has a different name!
+        int logoId = getResources().getIdentifier("privatebrowser_icon", "drawable", getPackageName());
+        if (logoId == 0) logoId = getResources().getIdentifier("ic_squircle", "drawable", getPackageName());
+        if (logoId == 0) logoId = getResources().getIdentifier("ic_launcher", "mipmap", getPackageName());
+
+        splashLogo.setImageResource(logoId);
+        FrameLayout.LayoutParams logoParams = new FrameLayout.LayoutParams(dp(120), dp(120));
+        logoParams.gravity = Gravity.CENTER;
+        splashOverlay.addView(splashLogo, logoParams);
+
+        ViewGroup rootLayout = findViewById(R.id.browserRoot);
+        rootLayout.addView(splashOverlay, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        // 3. Wait for the splash to be visible, then run heavy WebView loading!
+        rootLayout.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+            @Override
+            public boolean onPreDraw() {
+                rootLayout.getViewTreeObserver().removeOnPreDrawListener(this);
+
+                // The splash is fully rendered. It's now safe to let the thread freeze while loading WebView.
+                new Handler(Looper.getMainLooper()).post(() -> {
+                    loadBrowserState(); // Triggers the heavy Chromium initialization
+
+                    // Once finished, elegantly fade out the splash screen
+                    splashOverlay.animate()
+                            .alpha(0f)
+                            .setDuration(250) // Fast, snappy dissolve
+                            .setInterpolator(new AccelerateDecelerateInterpolator())
+                            .withEndAction(() -> rootLayout.removeView(splashOverlay))
+                            .start();
+                });
+                return true;
+            }
+        });
 
         // Native Permission Launcher for Voice Messages and Video/Audio calls
         permissionLauncher = registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), result -> {
@@ -219,7 +280,6 @@ public class PrivateBrowserActivity extends AppCompatActivity {
             }
         });
 
-        // FIXED: Re-added robust default parseResult to support standard Android files/cameras with manual extraction fallback
         fileChooserLauncher = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(),
                 result -> {
@@ -245,17 +305,7 @@ public class PrivateBrowserActivity extends AppCompatActivity {
                 }
         );
 
-        View rootLayout = findViewById(R.id.browserRoot);
-        rootLayout.setAlpha(0f);
-        rootLayout.animate().alpha(1f).setDuration(400).setInterpolator(new AccelerateDecelerateInterpolator()).start();
-
         try { StrictMode.setVmPolicy(new StrictMode.VmPolicy.Builder().build()); } catch (Exception ignored) {}
-
-        prefs = getSharedPreferences("SnakeWidgetPrefs", MODE_PRIVATE);
-        browserPrefs = getSharedPreferences(BROWSER_PREFS, MODE_PRIVATE);
-        themeState = prefs.getInt("app_theme_state", -1);
-        if (themeState == -1) themeState = prefs.getBoolean("is_dark_theme", true) ? 1 : 0;
-        isDarkTheme = (themeState != 0);
 
         webViewContainer = findViewById(R.id.webViewContainer);
         searchCapsule = findViewById(R.id.searchCapsule);
@@ -267,7 +317,7 @@ public class PrivateBrowserActivity extends AppCompatActivity {
         progressBar = findViewById(R.id.browserProgressBar);
 
         btnFront = findViewById(R.id.btnBrowserFront);
-        btnGo = findViewById(R.id.btnBrowserGo); // Our custom view
+        btnGo = findViewById(R.id.btnBrowserGo);
         btnMenu = findViewById(R.id.btnBrowserMenu);
         btnAutoScroll = findViewById(R.id.btnAutoScroll);
         ivAutoScrollIcon = findViewById(R.id.ivAutoScrollIcon);
@@ -309,6 +359,8 @@ public class PrivateBrowserActivity extends AppCompatActivity {
 
         applyTheme();
         renderHomeShortcuts();
+
+        // Circular Reveal kept strictly for closing
         setupModernBackGesture();
 
         etSearchUrl.setOnFocusChangeListener((v, hasFocus) -> {
@@ -358,11 +410,19 @@ public class PrivateBrowserActivity extends AppCompatActivity {
         });
 
         etSearchUrl.setOnEditorActionListener((v, actionId, event) -> { if (actionId == EditorInfo.IME_ACTION_GO || (event != null && event.getAction() == KeyEvent.ACTION_DOWN && event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) { loadUrlOrSearch(); return true; } return false; });
+    }
+
+    // --- NEW METHOD: Initiates Chromium Engine only after Splash animation completes ---
+    private void loadBrowserState() {
+        if (isBrowserLoaded) return;
+        isBrowserLoaded = true;
+
         restoreSession();
 
         Intent intent = getIntent();
         if (intent != null && Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData() != null) {
-            String externalUrl = intent.getData().toString(); createNewTab(externalUrl, false, true);
+            String externalUrl = intent.getData().toString();
+            createNewTab(externalUrl, false, true);
         }
     }
 
@@ -389,7 +449,7 @@ public class PrivateBrowserActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
-        saveSession();
+        if (isBrowserLoaded) saveSession();
         for (TabInfo t : tabs) {
             if (t.webView != null) t.webView.onPause();
         }
@@ -398,6 +458,8 @@ public class PrivateBrowserActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        // Crucial logic: Keep background transparent when resuming so Exit Reveal works safely
+        getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
         for (TabInfo t : tabs) {
             if (t.webView != null) t.webView.onResume();
         }
@@ -912,7 +974,39 @@ public class PrivateBrowserActivity extends AppCompatActivity {
                 }
                 else if (downloadsOverlay.getVisibility() == View.VISIBLE) { downloadsOverlay.setVisibility(View.GONE); updateBackgroundBlur(); }
                 else if (!tabs.isEmpty() && getCurrentWeb() != null && getCurrentWeb().canGoBack()) getCurrentWeb().goBack();
-                else { setEnabled(false); getOnBackPressedDispatcher().onBackPressed(); }
+                else {
+                    // SMOOTH BACK BUTTON EXIT REVEAL
+                    View rootLayout = findViewById(R.id.browserRoot);
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && rootLayout.isAttachedToWindow()) {
+                        Intent intent = getIntent();
+                        int cx = intent.getIntExtra("REVEAL_X", rootLayout.getWidth() / 2);
+                        int cy = intent.getIntExtra("REVEAL_Y", rootLayout.getHeight() / 2);
+
+                        float startRadius = (float) Math.hypot(
+                                Math.max(cx, rootLayout.getWidth() - cx),
+                                Math.max(cy, rootLayout.getHeight() - cy)
+                        );
+
+                        android.animation.Animator anim = android.view.ViewAnimationUtils.createCircularReveal(rootLayout, cx, cy, startRadius, 0f);
+                        anim.setDuration(400); // Fluid timing
+                        anim.setInterpolator(new android.view.animation.AccelerateInterpolator(1.5f));
+
+                        anim.addListener(new android.animation.AnimatorListenerAdapter() {
+                            @Override
+                            public void onAnimationEnd(android.animation.Animator animation) {
+                                rootLayout.setVisibility(View.INVISIBLE);
+                                setEnabled(false);
+                                finish();
+                                overridePendingTransition(0, 0);
+                            }
+                        });
+                        anim.start();
+                    } else {
+                        setEnabled(false);
+                        finish();
+                        overridePendingTransition(0, 0);
+                    }
+                }
             }
         });
     }

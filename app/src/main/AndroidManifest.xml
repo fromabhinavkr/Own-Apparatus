@@ -204,6 +204,7 @@
             android:name=".PrivateBrowserActivity"
             android:exported="true"
             android:launchMode="singleTask"
+            android:theme="@style/Theme.TransparentBrowser"
             android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>

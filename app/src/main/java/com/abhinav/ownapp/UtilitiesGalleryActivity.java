@@ -47,10 +47,10 @@ public class UtilitiesGalleryActivity extends AppCompatActivity {
         setContentView(R.layout.activity_utilities_gallery);
 
         // --- 3-STATE THEME SYNC LOGIC ---
-        SharedPreferences prefs = getSharedPreferences(SnakeWidget.PREFS_NAME, MODE_PRIVATE);
+        SharedPreferences prefs = getSharedPreferences("SnakeWidgetPrefs", MODE_PRIVATE);
         themeState = prefs.getInt("app_theme_state", -1);
         if (themeState == -1) {
-            boolean oldDark = prefs.getBoolean(SnakeWidget.PREF_IS_DARK, true);
+            boolean oldDark = prefs.getBoolean("is_dark_theme", true);
             themeState = oldDark ? 1 : 0;
         }
 
@@ -153,10 +153,10 @@ public class UtilitiesGalleryActivity extends AppCompatActivity {
                         revealY = intent.getIntExtra("REVEAL_Y", root.getHeight() / 2);
 
                         // Use hypotenuse to ensure the circle covers the entire screen perfectly
-                        float finalRadius = (float) Math.hypot(root.getWidth(), root.getHeight());
+                        float finalRadius = (float) Math.hypot(Math.max(revealX, root.getWidth() - revealX), Math.max(revealY, root.getHeight() - revealY));
 
                         Animator circularReveal = ViewAnimationUtils.createCircularReveal(root, revealX, revealY, 0, finalRadius);
-                        circularReveal.setDuration(350);
+                        circularReveal.setDuration(400);
                         circularReveal.setInterpolator(new DecelerateInterpolator());
 
                         root.setVisibility(View.VISIBLE);
@@ -172,9 +172,9 @@ public class UtilitiesGalleryActivity extends AppCompatActivity {
             public void handleOnBackPressed() {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && root.isAttachedToWindow()) {
 
-                    float startRadius = (float) Math.hypot(root.getWidth(), root.getHeight());
+                    float startRadius = (float) Math.hypot(Math.max(revealX, root.getWidth() - revealX), Math.max(revealY, root.getHeight() - revealY));
                     Animator circularReveal = ViewAnimationUtils.createCircularReveal(root, revealX, revealY, startRadius, 0);
-                    circularReveal.setDuration(350);
+                    circularReveal.setDuration(400);
                     circularReveal.setInterpolator(new DecelerateInterpolator());
 
                     circularReveal.addListener(new AnimatorListenerAdapter() {
@@ -242,19 +242,32 @@ public class UtilitiesGalleryActivity extends AppCompatActivity {
             });
         }
 
-        // --- Click Listeners to Launch Activities ---
+        // --- Click Listeners to Launch Activities (UPDATED for exact touch location mapping) ---
         if (cardBrowser != null) {
-            cardBrowser.setOnClickListener(v -> startActivity(new Intent(UtilitiesGalleryActivity.this, PrivateBrowserActivity.class)));
+            cardBrowser.setOnClickListener(v -> launchWithReveal(v, PrivateBrowserActivity.class));
         }
         if (cardDocReader != null) {
-            cardDocReader.setOnClickListener(v -> startActivity(new Intent(UtilitiesGalleryActivity.this, DocReaderActivity.class)));
+            cardDocReader.setOnClickListener(v -> launchWithReveal(v, DocReaderActivity.class));
         }
         if (cardSlate != null) {
-            cardSlate.setOnClickListener(v -> startActivity(new Intent(UtilitiesGalleryActivity.this, SlateActivity.class)));
+            cardSlate.setOnClickListener(v -> launchWithReveal(v, SlateActivity.class));
         }
         if (cardTextPad != null) {
-            cardTextPad.setOnClickListener(v -> startActivity(new Intent(UtilitiesGalleryActivity.this, TextPadActivity.class)));
+            cardTextPad.setOnClickListener(v -> launchWithReveal(v, TextPadActivity.class));
         }
+    }
+
+    private void launchWithReveal(View view, Class<?> targetActivity) {
+        Intent intent = new Intent(UtilitiesGalleryActivity.this, targetActivity);
+        int[] location = new int[2];
+        view.getLocationOnScreen(location);
+
+        // Pass the exact center of the clicked card
+        intent.putExtra("REVEAL_X", location[0] + view.getWidth() / 2);
+        intent.putExtra("REVEAL_Y", location[1] + view.getHeight() / 2);
+
+        startActivity(intent);
+        overridePendingTransition(0, 0); // Kills default slide transition
     }
 
     // --- Smart Lifecycle Interceptor ---
