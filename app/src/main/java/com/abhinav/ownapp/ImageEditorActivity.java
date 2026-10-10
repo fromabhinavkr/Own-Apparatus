@@ -1,22 +1,14 @@
 package com.abhinav.ownapp;
 
 import android.annotation.SuppressLint; import android.app.AlertDialog; import android.content.*; import android.content.res.ColorStateList; import android.graphics.*; import android.graphics.drawable.*; import android.net.Uri; import android.os.*; import android.provider.MediaStore; import android.view.*; import android.view.animation.DecelerateInterpolator; import android.widget.*; import androidx.activity.OnBackPressedCallback; import androidx.activity.result.*; import androidx.activity.result.contract.ActivityResultContracts; import androidx.annotation.NonNull; import androidx.appcompat.app.AppCompatActivity; import androidx.recyclerview.widget.*;
-
 import com.google.android.material.slider.Slider; import org.json.*; import java.io.*; import java.util.*;
 
 @SuppressWarnings("all") @SuppressLint({"SetTextI18n", "ClickableViewAccessibility", "DefaultLocale", "InflateParams"})
 public class ImageEditorActivity extends AppCompatActivity {
     private FrameLayout canvasContainer; public PhotoEditorView editorView; private View tapToStartView; private View rightToolsPanel; public View cropToolsBar; private LinearLayout leftLayersPanel; private View panelOverlay;
     private RecyclerView layersRecyclerView; private LayerAdapter layerAdapter; private Button btnZoom, btnGrid, btnLayerOut;
-
-    // --- 3-STATE THEME VARIABLES ---
-    private int themeState;
-    private boolean isDarkTheme;
-    private int panelColor, textColor, bgColor;
-
-    private LayerSettingsUI layerSettingsUI; private FrameLayout loadingOverlay;
+    private int themeState; private boolean isDarkTheme; private int panelColor, textColor, bgColor; private LayerSettingsUI layerSettingsUI; private FrameLayout loadingOverlay;
     public interface EyedropperCallback { void onColorPicked(int color); }
-
     private final ActivityResultLauncher<Intent> pickImageLauncher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> { if (result.getResultCode() == RESULT_OK && result.getData() != null) loadImage(result.getData().getData(), false, false); });
     private final ActivityResultLauncher<Intent> pickOverlayLauncher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> { if (result.getResultCode() == RESULT_OK && result.getData() != null) loadImage(result.getData().getData(), true, false); });
     private final ActivityResultLauncher<Intent> megaGalLauncher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> { if (result.getResultCode() == RESULT_OK && result.getData() != null) { String draftPath = result.getData().getStringExtra("draft_path"); if (draftPath != null) loadDraft(draftPath); } });
@@ -26,195 +18,167 @@ public class ImageEditorActivity extends AppCompatActivity {
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState); setContentView(R.layout.activity_image_editor);
-        SharedPreferences prefs = getSharedPreferences(SnakeWidget.PREFS_NAME, Context.MODE_PRIVATE);
-
-        // --- 3-STATE THEME SYNC LOGIC ---
-        themeState = prefs.getInt("app_theme_state", -1);
-        if (themeState == -1) {
-            boolean oldDark = prefs.getBoolean(SnakeWidget.PREF_IS_DARK, true);
-            themeState = oldDark ? 1 : 0;
-        }
-        isDarkTheme = (themeState != 0); // Kept for legacy UI dependencies
-
-        View root = findViewById(R.id.editorRoot); TextView tvTitle = findViewById(R.id.tvEditorTitle); canvasContainer = findViewById(R.id.canvasContainer); tapToStartView = findViewById(R.id.btnTapToStart);
-        if (tapToStartView == null) tapToStartView = findViewById(R.id.tvTapToStart); leftLayersPanel = findViewById(R.id.leftLayersPanel); rightToolsPanel = findViewById(R.id.rightToolsPanel); cropToolsBar = findViewById(R.id.cropToolsBar); panelOverlay = findViewById(R.id.panelOverlay);
-        if (panelOverlay != null) { panelOverlay.setOnClickListener(v -> { hideLeftPanel(); hideRightPanel(); }); }
-
+        SharedPreferences prefs = getSharedPreferences(SnakeWidget.PREFS_NAME, Context.MODE_PRIVATE); themeState = prefs.getInt("app_theme_state", -1); if (themeState == -1) { boolean oldDark = prefs.getBoolean(SnakeWidget.PREF_IS_DARK, true); themeState = oldDark ? 1 : 0; } isDarkTheme = (themeState != 0);
+        View root = findViewById(R.id.editorRoot); TextView tvTitle = findViewById(R.id.tvEditorTitle); canvasContainer = findViewById(R.id.canvasContainer); tapToStartView = findViewById(R.id.btnTapToStart); if (tapToStartView == null) tapToStartView = findViewById(R.id.tvTapToStart); leftLayersPanel = findViewById(R.id.leftLayersPanel); rightToolsPanel = findViewById(R.id.rightToolsPanel); cropToolsBar = findViewById(R.id.cropToolsBar); panelOverlay = findViewById(R.id.panelOverlay); if (panelOverlay != null) { panelOverlay.setOnClickListener(v -> { hideLeftPanel(); hideRightPanel(); }); }
         layersRecyclerView = findViewById(R.id.layersRecyclerView); layersRecyclerView.setLayoutManager(new LinearLayoutManager(this));
-        new ItemTouchHelper(new ItemTouchHelper.SimpleCallback(ItemTouchHelper.UP | ItemTouchHelper.DOWN, 0) {
-            @Override public boolean onMove(@NonNull RecyclerView recyclerView, @NonNull RecyclerView.ViewHolder viewHolder, @NonNull RecyclerView.ViewHolder target) { if (layerAdapter != null) layerAdapter.moveItem(viewHolder.getAdapterPosition(), target.getAdapterPosition()); return true; }
-            @Override public void onSwiped(@NonNull RecyclerView.ViewHolder viewHolder, int direction) { }
-        }).attachToRecyclerView(layersRecyclerView);
-
-        bgColorSettings(root, tvTitle);
-        GradientDrawable leftGd = new GradientDrawable(); leftGd.setColor(panelColor); leftGd.setCornerRadii(new float[]{0,0, 60f,60f, 60f,60f, 0,0}); leftLayersPanel.setBackground(leftGd);
-        GradientDrawable rightGd = new GradientDrawable(); rightGd.setColor(panelColor); rightGd.setCornerRadii(new float[]{60f,60f, 0,0, 0,0, 60f,60f}); rightToolsPanel.setBackground(rightGd);
-
-        editorView = new PhotoEditorView(this); canvasContainer.addView(editorView); editorView.setOnLayerChangeListener(this::refreshLayersPanel); editorView.setOnModeChangeListener(this::updateToolButtons);
-        layerSettingsUI = new LayerSettingsUI(this, editorView, isDarkTheme); editorView.setTextDoubleTapListener(layer -> layerSettingsUI.showTextAddDialog(layer));
+        new ItemTouchHelper(new ItemTouchHelper.SimpleCallback(ItemTouchHelper.UP | ItemTouchHelper.DOWN, 0) { @Override public boolean onMove(@NonNull RecyclerView recyclerView, @NonNull RecyclerView.ViewHolder viewHolder, @NonNull RecyclerView.ViewHolder target) { if (layerAdapter != null) layerAdapter.moveItem(viewHolder.getAdapterPosition(), target.getAdapterPosition()); return true; } @Override public void onSwiped(@NonNull RecyclerView.ViewHolder viewHolder, int direction) { } }).attachToRecyclerView(layersRecyclerView);
+        bgColorSettings(root, tvTitle); GradientDrawable leftGd = new GradientDrawable(); leftGd.setColor(panelColor); leftGd.setCornerRadii(new float[]{0,0, 60f,60f, 60f,60f, 0,0}); leftLayersPanel.setBackground(leftGd); GradientDrawable rightGd = new GradientDrawable(); rightGd.setColor(panelColor); rightGd.setCornerRadii(new float[]{60f,60f, 0,0, 0,0, 60f,60f}); rightToolsPanel.setBackground(rightGd);
+        editorView = new PhotoEditorView(this); canvasContainer.addView(editorView); editorView.setOnLayerChangeListener(this::refreshLayersPanel); editorView.setOnModeChangeListener(this::updateToolButtons); layerSettingsUI = new LayerSettingsUI(this, editorView, isDarkTheme); editorView.setTextDoubleTapListener(layer -> layerSettingsUI.showTextAddDialog(layer));
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) { @Override public void handleOnBackPressed() { if (editorView.isImageMissing()) finish(); else showExitDialog(); } });
-
-        Button btnLoad = findViewById(R.id.btnLoad); btnZoom = findViewById(R.id.btnZoom); btnGrid = findViewById(R.id.btnGrid); Button btnCrop = findViewById(R.id.btnCrop); Button btnAdjust = findViewById(R.id.btnAdjust); Button btnBgRemover = findViewById(R.id.btnBgRemover); Button btnText = findViewById(R.id.btnText); Button btnDraw = findViewById(R.id.btnDraw); Button btnAdvancedCanvas = findViewById(R.id.btnAdvancedCanvas); Button btnCloneTool = findViewById(R.id.btnCloneTool); Button btnCopy = findViewById(R.id.btnCopy); Button btnLayerEdit = findViewById(R.id.btnLayerEdit); Button btnUndo = findViewById(R.id.btnUndo); Button btnRedo = findViewById(R.id.btnRedo); Button btnClear = findViewById(R.id.btnClear); Button btnExport = findViewById(R.id.btnExport); Button btnAddOverlay = findViewById(R.id.btnAddOverlay); btnLayerOut = findViewById(R.id.btnLayerOut); Button btnSaveDraft = findViewById(R.id.btnSaveDraft); Button btnGallery = findViewById(R.id.btnGallery);
+        Button btnLoad = findViewById(R.id.btnLoad); btnZoom = findViewById(R.id.btnZoom); btnGrid = findViewById(R.id.btnGrid); Button btnCrop = findViewById(R.id.btnCrop); Button btnAdjust = findViewById(R.id.btnAdjust); Button btnBgRemover = findViewById(R.id.btnBgRemover); Button btnText = findViewById(R.id.btnText); Button btnDraw = findViewById(R.id.btnDraw); Button btnAdvancedCanvas = findViewById(R.id.btnAdvancedCanvas); Button btnCloneTool = findViewById(R.id.btnCloneTool); Button btnCopy = findViewById(R.id.btnCopy); Button btnPosition = findViewById(R.id.btnPosition); Button btnLayerEdit = findViewById(R.id.btnLayerEdit); Button btnUndo = findViewById(R.id.btnUndo); Button btnRedo = findViewById(R.id.btnRedo); Button btnClear = findViewById(R.id.btnClear); Button btnExport = findViewById(R.id.btnExport); Button btnAddOverlay = findViewById(R.id.btnAddOverlay); btnLayerOut = findViewById(R.id.btnLayerOut); Button btnSaveDraft = findViewById(R.id.btnSaveDraft); Button btnGallery = findViewById(R.id.btnGallery);
         Button btnCropCancel = findViewById(R.id.btnCropCancel); Button btnCropFull = findViewById(R.id.btnCropFull); Button btnCropFree = findViewById(R.id.btnCropFree); Button btnCrop1to1 = findViewById(R.id.btnCrop1to1); Button btnCrop16to9 = findViewById(R.id.btnCrop16to9); Button btnCrop9to16 = findViewById(R.id.btnCrop9to16); Button btnCrop4to3 = findViewById(R.id.btnCrop4to3); Button btnCrop4to1 = findViewById(R.id.btnCrop4to1); Button btnCropPerspective = findViewById(R.id.btnCropPerspective); Button btnCropCircle = findViewById(R.id.btnCropCircle); Button btnCropRotate = findViewById(R.id.btnCropRotate); Button btnCropMirror = findViewById(R.id.btnCropMirror); Button btnCropApply = findViewById(R.id.btnCropApply);
         Button btnToggleLayers = findViewById(R.id.btnToggleLayers); Button btnToggleTools = findViewById(R.id.btnToggleTools);
-
         ColorStateList unifiedBtnColor = ColorStateList.valueOf(themeState == 0 ? Color.parseColor("#FFFFFF") : (themeState == 1 ? Color.parseColor("#3A3A3C") : Color.parseColor("#2C2C2E")));
-        Button[] tools = {btnLoad, btnCrop, btnText, btnDraw, btnClear, btnCopy, btnLayerEdit, btnUndo, btnRedo, btnBgRemover, btnAdjust, btnZoom, btnGrid, btnLayerOut, btnAdvancedCanvas, btnCloneTool, btnSaveDraft};
+        Button[] tools = {btnLoad, btnCrop, btnText, btnDraw, btnClear, btnCopy, btnPosition, btnLayerEdit, btnUndo, btnRedo, btnBgRemover, btnAdjust, btnZoom, btnGrid, btnLayerOut, btnAdvancedCanvas, btnCloneTool, btnSaveDraft};
         for (Button b : tools) { if (b != null) { b.setBackgroundTintList(unifiedBtnColor); b.setTextColor(textColor); } }
+        if (btnPosition != null) { btnPosition.setOnClickListener(v -> { if (editorView.isImageMissing() || editorView.isCropping) return; PositionTool.showPositionDialog(this, editorView, isDarkTheme, panelColor, textColor); hideRightPanel(); }); }
         if (btnSaveDraft != null) { btnSaveDraft.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#8A2BE2"))); btnSaveDraft.setTextColor(Color.WHITE); }
-
-        int capsuleColor = themeState == 0 ? Color.parseColor("#D1D1D6") : (themeState == 1 ? Color.parseColor("#2C2C2E") : Color.parseColor("#1C1C1E"));
-        int capsuleTextColor = themeState == 0 ? Color.parseColor("#333333") : Color.WHITE;
+        int capsuleColor = themeState == 0 ? Color.parseColor("#D1D1D6") : (themeState == 1 ? Color.parseColor("#2C2C2E") : Color.parseColor("#1C1C1E")); int capsuleTextColor = themeState == 0 ? Color.parseColor("#333333") : Color.WHITE;
         setupCapsuleButton(btnToggleLayers, capsuleColor, capsuleTextColor); setupCapsuleButton(btnToggleTools, capsuleColor, capsuleTextColor); setupCapsuleButton(btnGallery, capsuleColor, capsuleTextColor); setupCapsuleButton(btnExport, capsuleColor, capsuleTextColor);
-        if (tapToStartView != null) tapToStartView.setOnClickListener(v -> launchPicker(false)); if (btnLoad != null) btnLoad.setOnClickListener(v -> launchPicker(false));
-        if (btnGallery != null) btnGallery.setOnClickListener(v -> megaGalLauncher.launch(new Intent(this, ImageStudioMegaGal.class)));
+        if (tapToStartView != null) tapToStartView.setOnClickListener(v -> launchPicker(false)); if (btnLoad != null) btnLoad.setOnClickListener(v -> launchPicker(false)); if (btnGallery != null) btnGallery.setOnClickListener(v -> megaGalLauncher.launch(new Intent(this, ImageStudioMegaGal.class)));
         if (btnSaveDraft != null) btnSaveDraft.setOnClickListener(v -> { if (editorView.isImageMissing()) { Toast.makeText(this, "Canvas is empty!", Toast.LENGTH_SHORT).show(); return; } showSaveDraftDialog(); });
-
-        if (btnLayerOut != null) {
-            btnLayerOut.setText("Layer Out: OFF");
-            btnLayerOut.setOnClickListener(v -> {
-                editorView.isLayerOutMode = !editorView.isLayerOutMode;
-                if (editorView.isLayerOutMode) { btnLayerOut.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#34C759"))); btnLayerOut.setTextColor(Color.WHITE); btnLayerOut.setText("Layer Out: ON"); }
-                else { btnLayerOut.setBackgroundTintList(unifiedBtnColor); btnLayerOut.setTextColor(textColor); btnLayerOut.setText("Layer Out: OFF"); }
-                editorView.invalidate();
-            });
-        }
-
-        if (btnUndo != null) btnUndo.setOnClickListener(v -> { if (!editorView.isImageMissing()) editorView.undoLastAction(); }); if (btnRedo != null) btnRedo.setOnClickListener(v -> { if (!editorView.isImageMissing()) editorView.redoLastAction(); });
-        if (btnGrid != null) btnGrid.setOnClickListener(v -> editorView.toggleGridMode()); if (btnZoom != null) btnZoom.setOnClickListener(v -> { if (!editorView.isImageMissing()) editorView.toggleZoomMode(); });
+        if (btnLayerOut != null) { btnLayerOut.setText("Layer Out: OFF"); btnLayerOut.setOnClickListener(v -> { editorView.isLayerOutMode = !editorView.isLayerOutMode; if (editorView.isLayerOutMode) { btnLayerOut.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#34C759"))); btnLayerOut.setTextColor(Color.WHITE); btnLayerOut.setText("Layer Out: ON"); } else { btnLayerOut.setBackgroundTintList(unifiedBtnColor); btnLayerOut.setTextColor(textColor); btnLayerOut.setText("Layer Out: OFF"); } editorView.invalidate(); }); }
+        if (btnUndo != null) btnUndo.setOnClickListener(v -> { if (!editorView.isImageMissing()) editorView.undoLastAction(); }); if (btnRedo != null) btnRedo.setOnClickListener(v -> { if (!editorView.isImageMissing()) editorView.redoLastAction(); }); if (btnGrid != null) btnGrid.setOnClickListener(v -> editorView.toggleGridMode()); if (btnZoom != null) btnZoom.setOnClickListener(v -> { if (!editorView.isImageMissing()) editorView.toggleZoomMode(); });
         if (btnAddOverlay != null) btnAddOverlay.setOnClickListener(v -> { if (!editorView.isImageMissing()) launchPicker(true); }); if (btnToggleTools != null) btnToggleTools.setOnClickListener(v -> toggleRightPanel()); if (btnToggleLayers != null) btnToggleLayers.setOnClickListener(v -> toggleLeftPanel());
         if (btnText != null) btnText.setOnClickListener(v -> { if (editorView.isImageMissing() || editorView.isCropping) return; editorView.deselectLayer(); hideRightPanel(); layerSettingsUI.showTextAddDialog(null); });
         if (btnLayerEdit != null) btnLayerEdit.setOnClickListener(v -> { LayerSettingsUI.GraphicLayer layer = editorView.getActiveLayer(); if (layer == null) { Toast.makeText(this, "Select a layer on the canvas first!", Toast.LENGTH_SHORT).show(); return; } hideRightPanel(); layerSettingsUI.showLayerEditDialog(layer); });
-
-        if (btnAdjust != null) {
-            btnAdjust.setOnClickListener(v -> {
-                if (editorView.isImageMissing() || editorView.isCropping) return;
-                editorView.deselectLayer(); hideRightPanel(); LayoutInflater inflater = LayoutInflater.from(this); View dialogView = inflater.inflate(R.layout.dialog_adjust, null); forceDialogBackground(dialogView); setDialogTextColor(dialogView, isDarkTheme ? Color.WHITE : Color.BLACK);
-                Slider slBrightness = dialogView.findViewById(R.id.slBrightness); Slider slContrast = dialogView.findViewById(R.id.slContrast); Slider slSaturation = dialogView.findViewById(R.id.slSaturation); Slider slHue = dialogView.findViewById(R.id.slHue); Button btnApplyAdjust = dialogView.findViewById(R.id.btnApplyAdjust);
-                slBrightness.setValue(editorView.imgBrightness); slContrast.setValue(editorView.imgContrast); slSaturation.setValue(editorView.imgSaturation); slHue.setValue(editorView.imgHue);
-                int sliderBgColor = isDarkTheme ? Color.parseColor("#4DFFFFFF") : Color.parseColor("#4D000000"); GradientDrawable bg1 = new GradientDrawable(); bg1.setColor(sliderBgColor); bg1.setCornerRadius(30f); slBrightness.setBackground(bg1); GradientDrawable bg2 = new GradientDrawable(); bg2.setColor(sliderBgColor); bg2.setCornerRadius(30f); slContrast.setBackground(bg2); GradientDrawable bg3 = new GradientDrawable(); bg3.setColor(sliderBgColor); bg3.setCornerRadius(30f); slSaturation.setBackground(bg3); GradientDrawable bg4 = new GradientDrawable(); bg4.setColor(sliderBgColor); bg4.setCornerRadius(30f); slHue.setBackground(bg4);
-                Slider.OnChangeListener listener = (slider, value, fromUser) -> { if (fromUser) editorView.setAdjustments(slBrightness.getValue(), slContrast.getValue(), slSaturation.getValue(), slHue.getValue()); };
-                slBrightness.addOnChangeListener(listener); slContrast.addOnChangeListener(listener); slSaturation.addOnChangeListener(listener); slHue.addOnChangeListener(listener);
-                AlertDialog.Builder builder = new AlertDialog.Builder(this, R.style.ModernDialogStyle); builder.setView(dialogView); AlertDialog dialog = builder.create(); if (dialog.getWindow() != null) dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
-                btnApplyAdjust.setOnClickListener(applyBtn -> dialog.dismiss()); dialog.show();
-            });
-        }
-
+        if (btnAdjust != null) { btnAdjust.setOnClickListener(v -> { if (editorView.isImageMissing() || editorView.isCropping) return; editorView.deselectLayer(); hideRightPanel(); LayoutInflater inflater = LayoutInflater.from(this); View dialogView = inflater.inflate(R.layout.dialog_adjust, null); forceDialogBackground(dialogView); setDialogTextColor(dialogView, isDarkTheme ? Color.WHITE : Color.BLACK); Slider slBrightness = dialogView.findViewById(R.id.slBrightness); Slider slContrast = dialogView.findViewById(R.id.slContrast); Slider slSaturation = dialogView.findViewById(R.id.slSaturation); Slider slHue = dialogView.findViewById(R.id.slHue); Button btnApplyAdjust = dialogView.findViewById(R.id.btnApplyAdjust); slBrightness.setValue(editorView.imgBrightness); slContrast.setValue(editorView.imgContrast); slSaturation.setValue(editorView.imgSaturation); slHue.setValue(editorView.imgHue); int sliderBgColor = isDarkTheme ? Color.parseColor("#4DFFFFFF") : Color.parseColor("#4D000000"); GradientDrawable bg1 = new GradientDrawable(); bg1.setColor(sliderBgColor); bg1.setCornerRadius(30f); slBrightness.setBackground(bg1); GradientDrawable bg2 = new GradientDrawable(); bg2.setColor(sliderBgColor); bg2.setCornerRadius(30f); slContrast.setBackground(bg2); GradientDrawable bg3 = new GradientDrawable(); bg3.setColor(sliderBgColor); bg3.setCornerRadius(30f); slSaturation.setBackground(bg3); GradientDrawable bg4 = new GradientDrawable(); bg4.setColor(sliderBgColor); bg4.setCornerRadius(30f); slHue.setBackground(bg4); Slider.OnChangeListener listener = (slider, value, fromUser) -> { if (fromUser) editorView.setAdjustments(slBrightness.getValue(), slContrast.getValue(), slSaturation.getValue(), slHue.getValue()); }; slBrightness.addOnChangeListener(listener); slContrast.addOnChangeListener(listener); slSaturation.addOnChangeListener(listener); slHue.addOnChangeListener(listener); AlertDialog.Builder builder = new AlertDialog.Builder(this, R.style.ModernDialogStyle); builder.setView(dialogView); AlertDialog dialog = builder.create(); if (dialog.getWindow() != null) dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent); btnApplyAdjust.setOnClickListener(applyBtn -> dialog.dismiss()); dialog.show(); }); }
         if (btnCrop != null) btnCrop.setOnClickListener(v -> { if (editorView.isImageMissing()) return; LayerSettingsUI.GraphicLayer active = editorView.getActiveLayer(); if (active != null && active.type == 1) editorView.startLayerCrop(); else editorView.startInteractiveCrop(); hideRightPanel(); showCropToolbar(); });
         if (btnCropCancel != null) btnCropCancel.setOnClickListener(v -> { editorView.cancelCrop(); hideCropToolbar(); showRightPanel(); }); if (btnCropFree != null) btnCropFree.setOnClickListener(v -> { editorView.setCropCircle(false); editorView.setCropRatio(0f); }); if (btnCropFull != null) btnCropFull.setOnClickListener(v -> editorView.setCropFull());
-        if (btnCrop1to1 != null) btnCrop1to1.setOnClickListener(v -> { editorView.setCropCircle(false); editorView.setCropRatio(1f); }); if (btnCrop16to9 != null) btnCrop16to9.setOnClickListener(v -> { editorView.setCropCircle(false); editorView.setCropRatio(16f / 9f); }); if (btnCrop9to16 != null) btnCrop9to16.setOnClickListener(v -> { editorView.setCropCircle(false); editorView.setCropRatio(9f / 16f); });
-        if (btnCrop4to3 != null) btnCrop4to3.setOnClickListener(v -> { editorView.setCropCircle(false); editorView.setCropRatio(4f / 3f); }); if (btnCrop4to1 != null) btnCrop4to1.setOnClickListener(v -> { editorView.setCropCircle(false); editorView.setCropRatio(4f); }); if (btnCropPerspective != null) btnCropPerspective.setOnClickListener(v -> editorView.startPerspectiveCrop());
-        if (btnCropCircle != null) btnCropCircle.setOnClickListener(v -> editorView.setCropCircle(true)); if (btnCropRotate != null) btnCropRotate.setOnClickListener(v -> editorView.rotateImage()); if (btnCropMirror != null) btnCropMirror.setOnClickListener(v -> editorView.mirrorImage()); if (btnCropApply != null) btnCropApply.setOnClickListener(v -> { editorView.applyCrop(); hideCropToolbar(); showRightPanel(); });
-        if (btnBgRemover != null) { BackgroundRemoverUI bgRemoverUI = new BackgroundRemoverUI(this, editorView, isDarkTheme, panelColor, textColor); btnBgRemover.setOnClickListener(v -> bgRemoverUI.showDialog()); }
-        if (btnCopy != null) btnCopy.setOnClickListener(v -> { if (!editorView.isImageMissing()) editorView.copyActiveLayer(); });
+        if (btnCrop1to1 != null) btnCrop1to1.setOnClickListener(v -> { editorView.setCropCircle(false); editorView.setCropRatio(1f); }); if (btnCrop16to9 != null) btnCrop16to9.setOnClickListener(v -> { editorView.setCropCircle(false); editorView.setCropRatio(16f / 9f); }); if (btnCrop9to16 != null) btnCrop9to16.setOnClickListener(v -> { editorView.setCropCircle(false); editorView.setCropRatio(9f / 16f); }); if (btnCrop4to3 != null) btnCrop4to3.setOnClickListener(v -> { editorView.setCropCircle(false); editorView.setCropRatio(4f / 3f); }); if (btnCrop4to1 != null) btnCrop4to1.setOnClickListener(v -> { editorView.setCropCircle(false); editorView.setCropRatio(4f); }); if (btnCropPerspective != null) btnCropPerspective.setOnClickListener(v -> editorView.startPerspectiveCrop()); if (btnCropCircle != null) btnCropCircle.setOnClickListener(v -> editorView.setCropCircle(true)); if (btnCropRotate != null) btnCropRotate.setOnClickListener(v -> editorView.rotateImage()); if (btnCropMirror != null) btnCropMirror.setOnClickListener(v -> editorView.mirrorImage()); if (btnCropApply != null) btnCropApply.setOnClickListener(v -> { editorView.applyCrop(); hideCropToolbar(); showRightPanel(); });
+        if (btnBgRemover != null) { BackgroundRemoverUI bgRemoverUI = new BackgroundRemoverUI(this, editorView, isDarkTheme, panelColor, textColor); btnBgRemover.setOnClickListener(v -> bgRemoverUI.showDialog()); } if (btnCopy != null) btnCopy.setOnClickListener(v -> { if (!editorView.isImageMissing()) editorView.copyActiveLayer(); });
 
         if (btnDraw != null) {
             btnDraw.setOnClickListener(v -> {
                 if (editorView.isImageMissing() || editorView.isCropping) return;
-                editorView.deselectLayer(); hideRightPanel(); LayoutInflater inflater = LayoutInflater.from(this); View dialogView = inflater.inflate(R.layout.dialog_brush_settings, null); forceDialogBackground(dialogView); setDialogTextColor(dialogView, isDarkTheme ? Color.WHITE : Color.BLACK);
-                EditText etHexCode = dialogView.findViewById(R.id.etBrushHexCode); android.widget.SeekBar sbSize = dialogView.findViewById(R.id.sbBrushSize); android.widget.SeekBar sbOpacity = dialogView.findViewById(R.id.sbBrushOpacity); Button btnEraser = dialogView.findViewById(R.id.btnEraserToggle); Button btnApply = dialogView.findViewById(R.id.btnBrushApply); FrameLayout colorWheelContainer = dialogView.findViewById(R.id.colorWheelContainer);
-                etHexCode.setTextColor(isDarkTheme ? Color.WHITE : Color.BLACK); int sBgC = isDarkTheme ? Color.parseColor("#4DFFFFFF") : Color.parseColor("#4D000000"); GradientDrawable sBg1 = new GradientDrawable(); sBg1.setColor(sBgC); sBg1.setCornerRadius(30f); sbSize.setBackground(sBg1); GradientDrawable sBg2 = new GradientDrawable(); sBg2.setColor(sBgC); sBg2.setCornerRadius(30f); sbOpacity.setBackground(sBg2);
-                LayerSettingsUI.ColorPickerView colorPicker = new LayerSettingsUI.ColorPickerView(this); LinearLayout.LayoutParams wheelLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 400); colorPicker.setLayoutParams(wheelLp); colorWheelContainer.addView(colorPicker);
-                sbSize.setProgress((int) editorView.drawingManager.currentBrushWidth); sbOpacity.setProgress((int) ((editorView.drawingManager.currentBrushOpacity / 255f) * 100f)); etHexCode.setText(String.format("#%06X", (0xFFFFFF & editorView.drawingManager.currentBrushColor))); colorPicker.setColor(editorView.drawingManager.currentBrushColor);
-                boolean isEraser = editorView.drawingManager.isDrawEraserMode; btnEraser.setBackgroundTintList(ColorStateList.valueOf(isEraser ? Color.parseColor("#FF3B30") : Color.parseColor("#E5E5EA"))); btnEraser.setTextColor(isEraser ? Color.WHITE : Color.parseColor("#333333"));
+                editorView.deselectLayer(); hideRightPanel();
+                LayoutInflater inflater = LayoutInflater.from(this); View dialogView = inflater.inflate(R.layout.dialog_brush_settings, null);
+
+                GradientDrawable semiTransBg = new GradientDrawable();
+                semiTransBg.setColor(isDarkTheme ? Color.parseColor("#B31C1C1E") : Color.parseColor("#B3F2F2F7"));
+                semiTransBg.setCornerRadius(60f); dialogView.setBackground(semiTransBg);
+                setDialogTextColor(dialogView, isDarkTheme ? Color.WHITE : Color.BLACK);
+
+                EditText etHexCode = dialogView.findViewById(R.id.etBrushHexCode);
+                Button btnEraser = dialogView.findViewById(R.id.btnEraserToggle);
+                Button btnApply = dialogView.findViewById(R.id.btnBrushApply);
+                FrameLayout colorWheelContainer = dialogView.findViewById(R.id.colorWheelContainer);
+                etHexCode.setTextColor(isDarkTheme ? Color.WHITE : Color.BLACK);
+
+                int dp8 = (int)(8 * getResources().getDisplayMetrics().density);
+                int dp16 = (int)(16 * getResources().getDisplayMetrics().density);
+                int dp24 = (int)(24 * getResources().getDisplayMetrics().density);
+                int dp32 = (int)(32 * getResources().getDisplayMetrics().density);
+
+                android.widget.SeekBar sbSizeOld = dialogView.findViewById(R.id.sbBrushSize);
+                android.widget.SeekBar sbOpacityOld = dialogView.findViewById(R.id.sbBrushOpacity);
+                ViewGroup sizeParent = (ViewGroup) sbSizeOld.getParent(); int sizeIdx = sizeParent.indexOfChild(sbSizeOld); ViewGroup.LayoutParams sizeLp = sbSizeOld.getLayoutParams(); sizeLp.height = (int)(44 * getResources().getDisplayMetrics().density); sizeParent.removeView(sbSizeOld); ModernSlider sbSize = new ModernSlider(this, isDarkTheme); sbSize.max = 150; sbSize.setProgress((int) editorView.drawingManager.currentBrushWidth); sizeParent.addView(sbSize, sizeIdx, sizeLp);
+                ViewGroup opParent = (ViewGroup) sbOpacityOld.getParent(); int opIdx = opParent.indexOfChild(sbOpacityOld); ViewGroup.LayoutParams opLp = sbOpacityOld.getLayoutParams(); opLp.height = (int)(44 * getResources().getDisplayMetrics().density); opParent.removeView(sbOpacityOld); ModernSlider sbOpacity = new ModernSlider(this, isDarkTheme); sbOpacity.max = 100; sbOpacity.setProgress((int) ((editorView.drawingManager.currentBrushOpacity / 255f) * 100f)); opParent.addView(sbOpacity, opIdx, opLp);
+
+                TextView tvHardness = new TextView(this); tvHardness.setText("Brush Hardness (%)"); tvHardness.setTextColor(isDarkTheme ? Color.WHITE : Color.BLACK); tvHardness.setTypeface(null, Typeface.BOLD); LinearLayout.LayoutParams lpTvH = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT); lpTvH.setMargins(0, dp24, 0, dp8); tvHardness.setLayoutParams(lpTvH);
+                ModernSlider sbHardness = new ModernSlider(this, isDarkTheme); LinearLayout.LayoutParams hardLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (int)(44 * getResources().getDisplayMetrics().density)); hardLp.setMargins(0, 0, 0, dp32); sbHardness.setLayoutParams(hardLp); sbHardness.max = 100; int cH = 100; try { java.lang.reflect.Field f = editorView.drawingManager.getClass().getField("currentBrushHardness"); if (f.getType() == float.class) cH = (int) f.getFloat(editorView.drawingManager); else cH = f.getInt(editorView.drawingManager); } catch (Exception e) { e.printStackTrace(); } sbHardness.setProgress(cH);
+                opParent.addView(tvHardness, opIdx + 1); opParent.addView(sbHardness, opIdx + 2);
+
+                colorWheelContainer.removeAllViews();
+                LinearLayout wheelAndGray = new LinearLayout(this); wheelAndGray.setOrientation(LinearLayout.VERTICAL); wheelAndGray.setMinimumHeight((int)(250 * getResources().getDisplayMetrics().density)); wheelAndGray.setLayoutParams(new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+                LayerSettingsUI.ColorPickerView colorPicker = new LayerSettingsUI.ColorPickerView(this);
+                LinearLayout.LayoutParams wheelLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f); colorPicker.setLayoutParams(wheelLp); wheelAndGray.addView(colorPicker);
+                colorPicker.setColor(editorView.drawingManager.currentBrushColor);
+
+                View colorIndicator = new View(this); int indSize = (int)(28 * getResources().getDisplayMetrics().density);
+                LinearLayout.LayoutParams indLp = new LinearLayout.LayoutParams(indSize, indSize); indLp.setMargins(0, 0, dp24, 0); colorIndicator.setLayoutParams(indLp);
+                GradientDrawable indBg = new GradientDrawable(); indBg.setShape(GradientDrawable.OVAL); indBg.setColor(editorView.drawingManager.currentBrushColor); indBg.setStroke(3, isDarkTheme ? Color.WHITE : Color.BLACK); colorIndicator.setBackground(indBg);
+                Runnable updateColorIndicator = () -> { GradientDrawable bg = (GradientDrawable) colorIndicator.getBackground(); if (bg != null) { bg.setColor(editorView.drawingManager.currentBrushColor); colorIndicator.invalidate(); } };
+
+                final boolean[] isUpdating = {false};
+                int sliderHeight = (int)(44 * getResources().getDisplayMetrics().density);
+                View grayScaleView = new View(this) {
+                    Paint p = new Paint(Paint.ANTI_ALIAS_FLAG); float thumbX = -1f;
+                    { setLayerType(LAYER_TYPE_SOFTWARE, null); }
+                    @Override protected void onDraw(Canvas canvas) {
+                        float r = getHeight() / 2f; RectF rect = new RectF(0, 0, getWidth(), getHeight());
+                        p.setShader(new LinearGradient(0, 0, getWidth(), 0, Color.WHITE, Color.BLACK, Shader.TileMode.CLAMP));
+                        canvas.drawRoundRect(rect, r, r, p); p.setShader(null);
+                        p.setColor(isDarkTheme ? Color.parseColor("#33FFFFFF") : Color.parseColor("#1A000000")); p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(2f);
+                        canvas.drawRoundRect(rect, r, r, p);
+                        if (thumbX >= 0) {
+                            float tx = Math.max(r, Math.min(thumbX, getWidth() - r));
+                            p.setStyle(Paint.Style.FILL); p.setColor(Color.WHITE);
+                            p.setShadowLayer(6f, 0, 2f, Color.parseColor("#80000000"));
+                            canvas.drawCircle(tx, getHeight()/2f, getHeight()/2f - 4f, p);
+                            p.clearShadowLayer();
+                        }
+                    }
+                    @SuppressLint("ClickableViewAccessibility") @Override public boolean onTouchEvent(MotionEvent event) {
+                        if(event.getAction() == MotionEvent.ACTION_DOWN || event.getAction() == MotionEvent.ACTION_MOVE) {
+                            float r = getHeight() / 2f; float touchX = Math.max(r, Math.min(event.getX(), getWidth() - r)); thumbX = touchX;
+                            float ratio = (touchX - r) / (getWidth() - 2 * r);
+                            int val = (int)(255 * (1f - ratio));
+                            int color = Color.rgb(val, val, val);
+                            editorView.drawingManager.currentBrushColor = color; colorPicker.setColor(color);
+                            isUpdating[0] = true; etHexCode.setText(String.format("#%06X", (0xFFFFFF & color))); isUpdating[0] = false;
+                            updateColorIndicator.run(); invalidate(); return true;
+                        } return super.onTouchEvent(event);
+                    }
+                };
+                LinearLayout.LayoutParams grayLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, sliderHeight); grayLp.setMargins(0, dp16, 0, dp16);
+                wheelAndGray.addView(grayScaleView, grayLp); colorWheelContainer.addView(wheelAndGray);
+
+                ViewGroup hexParent = (ViewGroup) etHexCode.getParent(); int hexIndex = hexParent.indexOfChild(etHexCode); hexParent.removeView(etHexCode);
+                LinearLayout hexRow = new LinearLayout(this); hexRow.setOrientation(LinearLayout.HORIZONTAL); hexRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                hexRow.addView(colorIndicator); hexRow.addView(etHexCode, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+                ImageButton btnEyeIcon = new ImageButton(this); btnEyeIcon.setImageResource(R.drawable.ic_colorpicker); btnEyeIcon.setBackgroundColor(Color.TRANSPARENT); btnEyeIcon.setColorFilter(isDarkTheme ? Color.WHITE : Color.parseColor("#333333"));
+                int iconSize = (int)(44 * getResources().getDisplayMetrics().density); LinearLayout.LayoutParams lpEye = new LinearLayout.LayoutParams(iconSize, iconSize); lpEye.setMargins(dp16, 0, 0, 0);
+                hexRow.addView(btnEyeIcon, lpEye); hexParent.addView(hexRow, hexIndex);
+
                 AlertDialog.Builder builder = new AlertDialog.Builder(this, R.style.ModernDialogStyle); builder.setView(dialogView); AlertDialog dialog = builder.create(); if (dialog.getWindow() != null) dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
-                ViewGroup row = (ViewGroup) btnApply.getParent(); row.removeAllViews(); LinearLayout newRow = new LinearLayout(this); newRow.setOrientation(LinearLayout.HORIZONTAL); newRow.setWeightSum(3f); newRow.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-                LinearLayout.LayoutParams lpBtn = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f); lpBtn.setMargins(8, 0, 8, 0); Button btnTurnOff = new Button(this); btnTurnOff.setText("Turn OFF"); btnTurnOff.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#FF3B30"))); btnTurnOff.setTextColor(Color.WHITE); btnTurnOff.setLayoutParams(lpBtn); btnEraser.setLayoutParams(lpBtn); btnApply.setLayoutParams(lpBtn);
+
+                ViewGroup row = (ViewGroup) btnApply.getParent(); row.removeAllViews();
+                LinearLayout newRow = new LinearLayout(this); newRow.setOrientation(LinearLayout.HORIZONTAL); newRow.setWeightSum(3f); newRow.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                LinearLayout.LayoutParams lpBtn = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f); lpBtn.setMargins(dp8, 0, dp8, 0);
+
+                Button btnTurnOff = new Button(this); btnTurnOff.setText("Turn OFF"); btnTurnOff.setTextColor(Color.WHITE); btnTurnOff.setAllCaps(false); btnTurnOff.setElevation(0f); btnTurnOff.setStateListAnimator(null);
+                GradientDrawable gdOff = new GradientDrawable(); gdOff.setColor(Color.parseColor("#FF3B30")); gdOff.setCornerRadius(100f); btnTurnOff.setBackground(gdOff); btnTurnOff.setLayoutParams(lpBtn);
+
+                boolean isEraser = editorView.drawingManager.isDrawEraserMode; btnEraser.setAllCaps(false); btnEraser.setLayoutParams(lpBtn); btnEraser.setElevation(0f); btnEraser.setStateListAnimator(null);
+                GradientDrawable bgEInit = new GradientDrawable(); bgEInit.setColor(isEraser ? Color.parseColor("#FF3B30") : Color.parseColor("#E5E5EA")); bgEInit.setCornerRadius(100f); btnEraser.setBackground(bgEInit); btnEraser.setTextColor(isEraser ? Color.WHITE : Color.parseColor("#333333"));
+
+                btnApply.setAllCaps(false); btnApply.setTextColor(Color.WHITE); btnApply.setBackgroundTintList(null); btnApply.setElevation(0f); btnApply.setStateListAnimator(null);
+                GradientDrawable gdApply = new GradientDrawable(); gdApply.setColor(Color.parseColor("#34C759")); gdApply.setCornerRadius(100f); btnApply.setBackground(gdApply); btnApply.setLayoutParams(lpBtn);
+
                 newRow.addView(btnTurnOff); newRow.addView(btnEraser); newRow.addView(btnApply); row.addView(newRow);
+
                 btnTurnOff.setOnClickListener(offBtn -> { editorView.drawingManager.isDrawMode = false; editorView.drawingManager.isDrawEraserMode = false; updateToolButtons(); dialog.dismiss(); Toast.makeText(this, "Draw Tool Disabled", Toast.LENGTH_SHORT).show(); });
-                boolean[] isUpdating = {false}; colorPicker.setOnColorChangeListener(color -> { if (!editorView.drawingManager.isDrawEraserMode) { editorView.drawingManager.currentBrushColor = color; if (!isUpdating[0]) { isUpdating[0] = true; etHexCode.setText(String.format("#%06X", (0xFFFFFF & color))); isUpdating[0] = false; } } });
-                etHexCode.addTextChangedListener(new android.text.TextWatcher() { @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {} @Override public void onTextChanged(CharSequence s, int start, int before, int count) { if (isUpdating[0]) return; if (s.length() == 7 && s.toString().startsWith("#")) { try { int newC = Color.parseColor(s.toString()); editorView.drawingManager.currentBrushColor = newC; colorPicker.setColor(newC); } catch (Exception ignored) {} } } @Override public void afterTextChanged(android.text.Editable s) {} });
-                btnEraser.setOnClickListener(eraserBtn -> { editorView.drawingManager.isDrawEraserMode = !editorView.drawingManager.isDrawEraserMode; btnEraser.setBackgroundTintList(ColorStateList.valueOf(editorView.drawingManager.isDrawEraserMode ? Color.parseColor("#FF3B30") : Color.parseColor("#E5E5EA"))); btnEraser.setTextColor(editorView.drawingManager.isDrawEraserMode ? Color.WHITE : Color.parseColor("#333333")); });
-                btnApply.setOnClickListener(applyBtn -> { editorView.drawingManager.currentBrushOpacity = (int) ((sbOpacity.getProgress() / 100f) * 255f); editorView.startDrawing(sbSize.getProgress()); updateToolButtons(); dialog.dismiss(); });
+                colorPicker.setOnColorChangeListener(color -> { if (!editorView.drawingManager.isDrawEraserMode) { editorView.drawingManager.currentBrushColor = color; if (!isUpdating[0]) { isUpdating[0] = true; etHexCode.setText(String.format("#%06X", (0xFFFFFF & color))); isUpdating[0] = false; } updateColorIndicator.run(); } });
+                etHexCode.addTextChangedListener(new android.text.TextWatcher() {
+                    @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+                    @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                        if (isUpdating[0]) return;
+                        try {
+                            int newC = Color.parseColor(s.toString().trim()); editorView.drawingManager.currentBrushColor = newC;
+                            isUpdating[0] = true; colorPicker.setColor(newC); isUpdating[0] = false; updateColorIndicator.run();
+                        } catch (Exception ignored) {}
+                    } @Override public void afterTextChanged(android.text.Editable s) {}
+                });
+                btnEraser.setOnClickListener(eraserBtn -> { editorView.drawingManager.isDrawEraserMode = !editorView.drawingManager.isDrawEraserMode; GradientDrawable bgE = new GradientDrawable(); bgE.setColor(editorView.drawingManager.isDrawEraserMode ? Color.parseColor("#FF3B30") : Color.parseColor("#E5E5EA")); bgE.setCornerRadius(100f); btnEraser.setBackground(bgE); btnEraser.setTextColor(editorView.drawingManager.isDrawEraserMode ? Color.WHITE : Color.parseColor("#333333")); });
+                btnEyeIcon.setOnClickListener(eyeBtn -> { dialog.dismiss(); editorView.startEyedropper(color -> { editorView.drawingManager.currentBrushColor = color; Toast.makeText(this, "Color Picked! Opening Draw Tool...", Toast.LENGTH_SHORT).show(); btnDraw.performClick(); }); });
+                btnApply.setOnClickListener(applyBtn -> {
+                    editorView.drawingManager.currentBrushOpacity = (int) ((sbOpacity.getProgress() / 100f) * 255f);
+                    editorView.currentBrushHardness = (float) sbHardness.getProgress();
+                    editorView.startDrawing(sbSize.getProgress());
+                    updateToolButtons(); dialog.dismiss();
+                });
                 dialog.show();
             });
         }
 
-        if (btnCloneTool != null) {
-            btnCloneTool.setOnClickListener(v -> {
-                if (editorView.isImageMissing()) { Toast.makeText(this, "Load an image on the canvas first!", Toast.LENGTH_SHORT).show(); return; }
-                Toast.makeText(this, "Preparing Clone Studio...", Toast.LENGTH_SHORT).show(); btnCloneTool.setEnabled(false); btnCloneTool.setText("Loading...");
-                new Thread(() -> {
-                    Bitmap currentImage; LayerSettingsUI.GraphicLayer active = editorView.getActiveLayer();
-                    if (active != null) { if (active.type == 1 && active.bitmap != null) currentImage = active.bitmap.copy(Bitmap.Config.ARGB_8888, true); else { active.bake(); currentImage = active.bakedCache != null ? active.bakedCache.copy(Bitmap.Config.ARGB_8888, true) : editorView.getRenderedBitmap(true); } } else currentImage = editorView.getRenderedBitmap(true);
-                    try { File tempIn = new File(getCacheDir(), "clone_in.png"); FileOutputStream fos = new FileOutputStream(tempIn); currentImage.compress(Bitmap.CompressFormat.PNG, 100, fos); fos.close(); runOnUiThread(() -> { btnCloneTool.setEnabled(true); btnCloneTool.setText("Clone Tool"); Intent intent = new Intent(ImageEditorActivity.this, CloneActivity.class); intent.putExtra("image_path", tempIn.getAbsolutePath()); cloneLauncher.launch(intent); }); } catch (Exception e) { runOnUiThread(() -> { btnCloneTool.setEnabled(true); btnCloneTool.setText("Clone Tool"); Toast.makeText(ImageEditorActivity.this, "Failed to launch Clone Tool", Toast.LENGTH_SHORT).show(); }); }
-                }).start();
-            });
-        }
-
-        if (btnAdvancedCanvas != null) {
-            btnAdvancedCanvas.setOnClickListener(v -> {
-                if (editorView.isImageMissing()) { showEmptyCanvasColorPicker(); return; }
-                Toast.makeText(this, "Preparing Canvas...", Toast.LENGTH_SHORT).show(); btnAdvancedCanvas.setEnabled(false); btnAdvancedCanvas.setText("Loading...");
-                new Thread(() -> {
-                    Bitmap currentImage; LayerSettingsUI.GraphicLayer active = editorView.getActiveLayer();
-                    if (active != null) { if (active.type == 1 && active.bitmap != null) currentImage = active.bitmap.copy(Bitmap.Config.ARGB_8888, true); else { active.bake(); currentImage = active.bakedCache != null ? active.bakedCache.copy(Bitmap.Config.ARGB_8888, true) : editorView.getRenderedBitmap(true); } } else currentImage = editorView.getRenderedBitmap(true);
-                    try { File tempIn = new File(getCacheDir(), "canvas_in.png"); FileOutputStream fos = new FileOutputStream(tempIn); currentImage.compress(Bitmap.CompressFormat.PNG, 100, fos); fos.close(); runOnUiThread(() -> { btnAdvancedCanvas.setEnabled(true); btnAdvancedCanvas.setText("Pro Canvas"); Intent intent = new Intent(ImageEditorActivity.this, AdvancedCanvasActivity.class); intent.putExtra("image_path", tempIn.getAbsolutePath()); advancedCanvasLauncher.launch(intent); }); } catch (Exception e) { runOnUiThread(() -> { btnAdvancedCanvas.setEnabled(true); btnAdvancedCanvas.setText("Pro Canvas"); Toast.makeText(ImageEditorActivity.this, "Failed to launch Canvas", Toast.LENGTH_SHORT).show(); }); }
-                }).start();
-            });
-        }
-
-        setupLoadingOverlay();
-        if (btnClear != null) btnClear.setOnClickListener(v -> { if (editorView.isImageMissing()) return; editorView.clearModifications(); hideRightPanel(); });
-
-        if (btnExport != null) {
-            btnExport.setOnClickListener(v -> {
-                if (editorView.isImageMissing() || editorView.isCropping) return;
-                editorView.deselectLayer(); AlertDialog.Builder builder = new AlertDialog.Builder(this, R.style.ModernDialogStyle);
-                LinearLayout mainLayout = new LinearLayout(this); mainLayout.setOrientation(LinearLayout.VERTICAL); mainLayout.setPadding(60, 60, 60, 60);
-                GradientDrawable bg = new GradientDrawable(); bg.setColor(isDarkTheme ? Color.parseColor("#1C1C1E") : Color.parseColor("#FFFFFF")); bg.setCornerRadius(60f); mainLayout.setBackground(bg);
-                TextView title = new TextView(this); title.setText("Export Options"); title.setTextSize(22f); title.setTypeface(null, android.graphics.Typeface.BOLD); title.setTextColor(textColor); title.setGravity(Gravity.CENTER); title.setPadding(0, 0, 0, 40); mainLayout.addView(title);
-                String[] formats = { "PNG (High Quality)", "PNG (Compressed)", "JPG (High Quality)", "JPG (Compressed)", "WEBP (High Quality)", "WEBP (Compressed)" };
-                String greyColor = isDarkTheme ? "#3A3A3C" : "#F2F2F7"; String dimGreyColor = isDarkTheme ? "#2C2C2E" : "#E5E5EA"; String borderStroke = isDarkTheme ? "#4A4A4C" : "#D1D1D6";
-                AlertDialog dialog = builder.create(); if (dialog.getWindow() != null) dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
-                for (int i = 0; i < formats.length; i++) {
-                    Button btn = new Button(this); btn.setText(formats[i]); btn.setAllCaps(false); btn.setTextSize(15f); btn.setTextColor(textColor);
-                    GradientDrawable btnBg = new GradientDrawable(); btnBg.setColor(Color.parseColor(i % 2 == 0 ? greyColor : dimGreyColor)); btnBg.setCornerRadius(30f); btnBg.setStroke(2, Color.parseColor(borderStroke)); btn.setBackground(btnBg);
-                    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 140); lp.setMargins(0, 0, 0, 20); btn.setLayoutParams(lp);
-                    int finalI = i; btn.setOnClickListener(bv -> { dialog.dismiss(); exportImage(finalI); }); mainLayout.addView(btn);
-                }
-                Button btnCancel = new Button(this); btnCancel.setText("Cancel"); btnCancel.setAllCaps(false); btnCancel.setTextColor(Color.WHITE); GradientDrawable cancelBg = new GradientDrawable(); cancelBg.setColor(Color.parseColor("#FF3B30")); cancelBg.setCornerRadius(30f); btnCancel.setBackground(cancelBg);
-                LinearLayout.LayoutParams cancelLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 140); cancelLp.setMargins(0, 20, 0, 0); btnCancel.setLayoutParams(cancelLp); btnCancel.setOnClickListener(bv -> dialog.dismiss()); mainLayout.addView(btnCancel);
-                ScrollView scrollWrapper = new ScrollView(this); scrollWrapper.addView(mainLayout); dialog.setView(scrollWrapper); dialog.show();
-            });
-        }
-
-        // --- CATCH SHARED IMAGES FROM OTHER APPS ---
-        Intent intent = getIntent();
-        String action = intent.getAction();
-        String type = intent.getType();
-
-        if (Intent.ACTION_SEND.equals(action) && type != null && type.startsWith("image/")) {
-            Uri imageUri = intent.getParcelableExtra(Intent.EXTRA_STREAM);
-            if (imageUri != null) {
-                // Short delay ensures the canvas view is fully measured and ready before rendering
-                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                    // "true" forces the Image Loader to use MAXIMUM hardware quality limits
-                    loadImage(imageUri, false, true);
-                }, 300);
-            }
-        }
-        // ------------------------------------------
+        if (btnCloneTool != null) { btnCloneTool.setOnClickListener(v -> { if (editorView.isImageMissing()) { Toast.makeText(this, "Load an image on the canvas first!", Toast.LENGTH_SHORT).show(); return; } Toast.makeText(this, "Preparing Clone Studio...", Toast.LENGTH_SHORT).show(); btnCloneTool.setEnabled(false); btnCloneTool.setText("Loading..."); new Thread(() -> { Bitmap currentImage; LayerSettingsUI.GraphicLayer active = editorView.getActiveLayer(); if (active != null) { if (active.type == 1 && active.bitmap != null) currentImage = active.bitmap.copy(Bitmap.Config.ARGB_8888, true); else { active.bake(); currentImage = active.bakedCache != null ? active.bakedCache.copy(Bitmap.Config.ARGB_8888, true) : editorView.getRenderedBitmap(true); } } else currentImage = editorView.getRenderedBitmap(true); try { File tempIn = new File(getCacheDir(), "clone_in.png"); FileOutputStream fos = new FileOutputStream(tempIn); currentImage.compress(Bitmap.CompressFormat.PNG, 100, fos); fos.close(); runOnUiThread(() -> { btnCloneTool.setEnabled(true); btnCloneTool.setText("Clone Tool"); Intent intent = new Intent(ImageEditorActivity.this, CloneActivity.class); intent.putExtra("image_path", tempIn.getAbsolutePath()); cloneLauncher.launch(intent); }); } catch (Exception e) { runOnUiThread(() -> { btnCloneTool.setEnabled(true); btnCloneTool.setText("Clone Tool"); Toast.makeText(ImageEditorActivity.this, "Failed to launch Clone Tool", Toast.LENGTH_SHORT).show(); }); } }).start(); }); }
+        if (btnAdvancedCanvas != null) { btnAdvancedCanvas.setOnClickListener(v -> { if (editorView.isImageMissing()) { showEmptyCanvasColorPicker(); return; } Toast.makeText(this, "Preparing Canvas...", Toast.LENGTH_SHORT).show(); btnAdvancedCanvas.setEnabled(false); btnAdvancedCanvas.setText("Loading..."); new Thread(() -> { Bitmap currentImage; LayerSettingsUI.GraphicLayer active = editorView.getActiveLayer(); if (active != null) { if (active.type == 1 && active.bitmap != null) currentImage = active.bitmap.copy(Bitmap.Config.ARGB_8888, true); else { active.bake(); currentImage = active.bakedCache != null ? active.bakedCache.copy(Bitmap.Config.ARGB_8888, true) : editorView.getRenderedBitmap(true); } } else currentImage = editorView.getRenderedBitmap(true); try { File tempIn = new File(getCacheDir(), "canvas_in.png"); FileOutputStream fos = new FileOutputStream(tempIn); currentImage.compress(Bitmap.CompressFormat.PNG, 100, fos); fos.close(); runOnUiThread(() -> { btnAdvancedCanvas.setEnabled(true); btnAdvancedCanvas.setText("Pro Canvas"); Intent intent = new Intent(ImageEditorActivity.this, AdvancedCanvasActivity.class); intent.putExtra("image_path", tempIn.getAbsolutePath()); advancedCanvasLauncher.launch(intent); }); } catch (Exception e) { runOnUiThread(() -> { btnAdvancedCanvas.setEnabled(true); btnAdvancedCanvas.setText("Pro Canvas"); Toast.makeText(ImageEditorActivity.this, "Failed to launch Canvas", Toast.LENGTH_SHORT).show(); }); } }).start(); }); }
+        setupLoadingOverlay(); if (btnClear != null) btnClear.setOnClickListener(v -> { if (editorView.isImageMissing()) return; editorView.clearModifications(); hideRightPanel(); });
+        if (btnExport != null) { btnExport.setOnClickListener(v -> { if (editorView.isImageMissing() || editorView.isCropping) return; editorView.deselectLayer(); AlertDialog.Builder builder = new AlertDialog.Builder(this, R.style.ModernDialogStyle); LinearLayout mainLayout = new LinearLayout(this); mainLayout.setOrientation(LinearLayout.VERTICAL); mainLayout.setPadding(60, 60, 60, 60); GradientDrawable bg = new GradientDrawable(); bg.setColor(isDarkTheme ? Color.parseColor("#1C1C1E") : Color.parseColor("#FFFFFF")); bg.setCornerRadius(60f); mainLayout.setBackground(bg); TextView title = new TextView(this); title.setText("Export Options"); title.setTextSize(22f); title.setTypeface(null, android.graphics.Typeface.BOLD); title.setTextColor(textColor); title.setGravity(Gravity.CENTER); title.setPadding(0, 0, 0, 40); mainLayout.addView(title); String[] formats = { "PNG (High Quality)", "PNG (Compressed)", "JPG (High Quality)", "JPG (Compressed)", "WEBP (High Quality)", "WEBP (Compressed)" }; String greyColor = isDarkTheme ? "#3A3A3C" : "#F2F2F7"; String dimGreyColor = isDarkTheme ? "#2C2C2E" : "#E5E5EA"; String borderStroke = isDarkTheme ? "#4A4A4C" : "#D1D1D6"; AlertDialog dialog = builder.create(); if (dialog.getWindow() != null) dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent); for (int i = 0; i < formats.length; i++) { Button btn = new Button(this); btn.setText(formats[i]); btn.setAllCaps(false); btn.setTextSize(15f); btn.setTextColor(textColor); GradientDrawable btnBg = new GradientDrawable(); btnBg.setColor(Color.parseColor(i % 2 == 0 ? greyColor : dimGreyColor)); btnBg.setCornerRadius(30f); btnBg.setStroke(2, Color.parseColor(borderStroke)); btn.setBackground(btnBg); LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 140); lp.setMargins(0, 0, 0, 20); btn.setLayoutParams(lp); int finalI = i; btn.setOnClickListener(bv -> { dialog.dismiss(); exportImage(finalI); }); mainLayout.addView(btn); } Button btnCancel = new Button(this); btnCancel.setText("Cancel"); btnCancel.setAllCaps(false); btnCancel.setTextColor(Color.WHITE); GradientDrawable cancelBg = new GradientDrawable(); cancelBg.setColor(Color.parseColor("#FF3B30")); cancelBg.setCornerRadius(30f); btnCancel.setBackground(cancelBg); LinearLayout.LayoutParams cancelLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 140); cancelLp.setMargins(0, 20, 0, 0); btnCancel.setLayoutParams(cancelLp); btnCancel.setOnClickListener(bv -> dialog.dismiss()); mainLayout.addView(btnCancel); ScrollView scrollWrapper = new ScrollView(this); scrollWrapper.addView(mainLayout); dialog.setView(scrollWrapper); dialog.show(); }); }
+        Intent intent = getIntent(); String action = intent.getAction(); String type = intent.getType(); if (Intent.ACTION_SEND.equals(action) && type != null && type.startsWith("image/")) { Uri imageUri = intent.getParcelableExtra(Intent.EXTRA_STREAM); if (imageUri != null) { new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> { loadImage(imageUri, false, true); }, 300); } }
     }
-
-    private void bgColorSettings(View root, TextView tvTitle) {
-        if (themeState == 0) { // Light Mode
-            bgColor = Color.parseColor("#FFFFFF");
-            panelColor = Color.parseColor("#E6F2F2F7");
-            textColor = Color.parseColor("#333333");
-        } else if (themeState == 1) { // Standard Dark Mode
-            bgColor = Color.parseColor("#0A0A0C");
-            panelColor = Color.parseColor("#D91C1C1E");
-            textColor = Color.WHITE;
-        } else { // Star Mode (AMOLED Pure Black)
-            bgColor = Color.parseColor("#000000"); // Pure AMOLED Black
-            panelColor = Color.parseColor("#E61C1C1E"); // Thicker translucent dark gray
-            textColor = Color.WHITE;
-        }
-
-        root.setBackgroundColor(bgColor); canvasContainer.setBackgroundColor(bgColor); tvTitle.setTextColor(textColor);
-    }
-
+    private void bgColorSettings(View root, TextView tvTitle) { if (themeState == 0) { bgColor = Color.parseColor("#FFFFFF"); panelColor = Color.parseColor("#E6F2F2F7"); textColor = Color.parseColor("#333333"); } else if (themeState == 1) { bgColor = Color.parseColor("#0A0A0C"); panelColor = Color.parseColor("#D91C1C1E"); textColor = Color.WHITE; } else { bgColor = Color.parseColor("#000000"); panelColor = Color.parseColor("#E61C1C1E"); textColor = Color.WHITE; } root.setBackgroundColor(bgColor); canvasContainer.setBackgroundColor(bgColor); tvTitle.setTextColor(textColor); }
     private void setupCapsuleButton(Button btn, int capsuleColor, int capsuleTextColor) { if (btn != null) { GradientDrawable capsule = new GradientDrawable(); capsule.setColor(capsuleColor); capsule.setCornerRadius(100f); btn.setBackgroundTintList(null); btn.setBackground(capsule); btn.setTextColor(capsuleTextColor); } }
     public void updateToolButtons() { if (btnZoom == null || btnGrid == null) return; int activeColor = Color.parseColor("#34C759"); int defaultBg = themeState == 0 ? Color.parseColor("#FFFFFF") : (themeState == 1 ? Color.parseColor("#3A3A3C") : Color.parseColor("#2C2C2E")); btnZoom.setBackgroundTintList(ColorStateList.valueOf(editorView.isZoomMode ? activeColor : defaultBg)); btnZoom.setTextColor(editorView.isZoomMode ? Color.WHITE : textColor); btnZoom.setText(editorView.isZoomMode ? "Zoom: ON" : "Zoom: OFF"); btnGrid.setBackgroundTintList(ColorStateList.valueOf(editorView.isGridMode ? activeColor : defaultBg)); btnGrid.setTextColor(editorView.isGridMode ? Color.WHITE : textColor); btnGrid.setText(editorView.isGridMode ? "Grid: ON" : "Grid: OFF"); Button dBtn = findViewById(R.id.btnDraw); if (dBtn != null) { dBtn.setBackgroundTintList(ColorStateList.valueOf(editorView.drawingManager.isDrawMode ? activeColor : defaultBg)); dBtn.setTextColor(editorView.drawingManager.isDrawMode ? Color.WHITE : textColor); dBtn.setText(editorView.drawingManager.isDrawMode ? "Draw: ON" : "Draw Tool"); } }
     public void setDialogTextColor(View view, int color) { if (view instanceof TextView && !(view instanceof Button) && !(view instanceof EditText)) ((TextView) view).setTextColor(color); else if (view instanceof ViewGroup) { ViewGroup vg = (ViewGroup) view; for (int i = 0; i < vg.getChildCount(); i++) setDialogTextColor(vg.getChildAt(i), color); } }
@@ -224,87 +188,7 @@ public class ImageEditorActivity extends AppCompatActivity {
     public void forceDialogBackground(View view) { if (view == null) return; GradientDrawable gd = new GradientDrawable(); gd.setColor(panelColor); gd.setCornerRadius(60f); view.setBackground(gd); }
     public void launchPicker(boolean isOverlay) { Intent intent = new Intent(Intent.ACTION_PICK); intent.setType("image/*"); if (isOverlay) pickOverlayLauncher.launch(intent); else pickImageLauncher.launch(intent); }
     public int calculateInSampleSize(BitmapFactory.Options options, int reqWidth, int reqHeight) { final int height = options.outHeight; final int width = options.outWidth; int inSampleSize = 1; if (height > reqHeight || width > reqWidth) { final int halfHeight = height / 2; final int halfWidth = width / 2; while ((halfHeight / inSampleSize) >= reqHeight || (halfWidth / inSampleSize) >= reqWidth) inSampleSize *= 2; long totalPixels = (long) (width / inSampleSize) * (height / inSampleSize); long reqPixels = (long) reqWidth * reqHeight; while (totalPixels > (reqPixels * 1.5)) { inSampleSize *= 2; totalPixels = (long) (width / inSampleSize) * (height / inSampleSize); } } return inSampleSize; }
-
-    // UPDATED: Added forceMaxQuality to push the limits for shared images
-    public void loadImage(Uri uri, boolean isOverlay, boolean forceMaxQuality) {
-        if (loadingOverlay != null) loadingOverlay.setVisibility(View.VISIBLE);
-        new Thread(() -> {
-            try {
-                // Uses 8K resolution limit (8192px) for maximum raw quality when shared from gallery!
-                int maxDimension = forceMaxQuality ? 8192 : (isOverlay ? 1500 : 2560);
-                Bitmap bitmap = null;
-                while (maxDimension > 800) {
-                    try {
-                        BitmapFactory.Options options = new BitmapFactory.Options();
-                        options.inJustDecodeBounds = true;
-                        InputStream is = getContentResolver().openInputStream(uri);
-                        BitmapFactory.decodeStream(is, null, options);
-                        if (is != null) is.close();
-                        options.inSampleSize = calculateInSampleSize(options, maxDimension, maxDimension);
-                        options.inJustDecodeBounds = false;
-                        options.inMutable = true;
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) options.inPreferredConfig = Bitmap.Config.ARGB_8888;
-                        is = getContentResolver().openInputStream(uri);
-                        bitmap = BitmapFactory.decodeStream(is, null, options);
-                        if (is != null) is.close();
-                        if (bitmap != null) {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && bitmap.getConfig() == Bitmap.Config.HARDWARE) {
-                                Bitmap swBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true);
-                                bitmap.recycle();
-                                bitmap = swBitmap;
-                            }
-                            int bW = bitmap.getWidth();
-                            int bH = bitmap.getHeight();
-                            if (bW > maxDimension || bH > maxDimension) {
-                                float ratio = Math.min((float) maxDimension / bW, (float) maxDimension / bH);
-                                int finalW = Math.max(1, (int) (bW * ratio));
-                                int finalH = Math.max(1, (int) (bH * ratio));
-                                Bitmap scaled = Bitmap.createScaledBitmap(bitmap, finalW, finalH, true);
-                                if (scaled != bitmap) {
-                                    bitmap.recycle();
-                                    bitmap = scaled;
-                                }
-                            }
-                        }
-                        break;
-                    } catch (OutOfMemoryError e) {
-                        System.gc();
-                        maxDimension = (int) (maxDimension * 0.7f); // Scale down gracefully only if RAM gets maxed out
-                        if (bitmap != null && !bitmap.isRecycled()) {
-                            bitmap.recycle();
-                            bitmap = null;
-                        }
-                    }
-                }
-                final Bitmap finalBitmap = bitmap;
-                runOnUiThread(() -> {
-                    if (loadingOverlay != null) loadingOverlay.setVisibility(View.GONE);
-                    if (finalBitmap != null) {
-                        try {
-                            if (isOverlay) {
-                                editorView.addImageLayer(finalBitmap);
-                                if (leftLayersPanel != null) showLeftPanel();
-                            } else {
-                                if (tapToStartView != null) tapToStartView.setVisibility(View.GONE);
-                                editorView.setImage(finalBitmap);
-                            }
-                        } catch (OutOfMemoryError e) {
-                            System.gc();
-                            Toast.makeText(ImageEditorActivity.this, "Memory full. Please select a smaller file.", Toast.LENGTH_LONG).show();
-                        }
-                    } else {
-                        Toast.makeText(ImageEditorActivity.this, "Failed to load image. File may be corrupted.", Toast.LENGTH_LONG).show();
-                    }
-                });
-            } catch (Exception e) {
-                runOnUiThread(() -> {
-                    if (loadingOverlay != null) loadingOverlay.setVisibility(View.GONE);
-                    Toast.makeText(ImageEditorActivity.this, "Error loading image", Toast.LENGTH_SHORT).show();
-                });
-            }
-        }).start();
-    }
-
+    public void loadImage(Uri uri, boolean isOverlay, boolean forceMaxQuality) { if (loadingOverlay != null) loadingOverlay.setVisibility(View.VISIBLE); new Thread(() -> { try { int maxDimension = forceMaxQuality ? 8192 : (isOverlay ? 1500 : 2560); Bitmap bitmap = null; while (maxDimension > 800) { try { BitmapFactory.Options options = new BitmapFactory.Options(); options.inJustDecodeBounds = true; InputStream is = getContentResolver().openInputStream(uri); BitmapFactory.decodeStream(is, null, options); if (is != null) is.close(); options.inSampleSize = calculateInSampleSize(options, maxDimension, maxDimension); options.inJustDecodeBounds = false; options.inMutable = true; if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) options.inPreferredConfig = Bitmap.Config.ARGB_8888; is = getContentResolver().openInputStream(uri); bitmap = BitmapFactory.decodeStream(is, null, options); if (is != null) is.close(); if (bitmap != null) { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && bitmap.getConfig() == Bitmap.Config.HARDWARE) { Bitmap swBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true); bitmap.recycle(); bitmap = swBitmap; } int bW = bitmap.getWidth(); int bH = bitmap.getHeight(); if (bW > maxDimension || bH > maxDimension) { float ratio = Math.min((float) maxDimension / bW, (float) maxDimension / bH); int finalW = Math.max(1, (int) (bW * ratio)); int finalH = Math.max(1, (int) (bH * ratio)); Bitmap scaled = Bitmap.createScaledBitmap(bitmap, finalW, finalH, true); if (scaled != bitmap) { bitmap.recycle(); bitmap = scaled; } } } break; } catch (OutOfMemoryError e) { System.gc(); maxDimension = (int) (maxDimension * 0.7f); if (bitmap != null && !bitmap.isRecycled()) { bitmap.recycle(); bitmap = null; } } } final Bitmap finalBitmap = bitmap; runOnUiThread(() -> { if (loadingOverlay != null) loadingOverlay.setVisibility(View.GONE); if (finalBitmap != null) { try { if (isOverlay) { editorView.addImageLayer(finalBitmap); if (leftLayersPanel != null) showLeftPanel(); } else { if (tapToStartView != null) tapToStartView.setVisibility(View.GONE); editorView.setImage(finalBitmap); } } catch (OutOfMemoryError e) { System.gc(); Toast.makeText(ImageEditorActivity.this, "Memory full. Please select a smaller file.", Toast.LENGTH_LONG).show(); } } else { Toast.makeText(ImageEditorActivity.this, "Failed to load image. File may be corrupted.", Toast.LENGTH_LONG).show(); } }); } catch (Exception e) { runOnUiThread(() -> { if (loadingOverlay != null) loadingOverlay.setVisibility(View.GONE); Toast.makeText(ImageEditorActivity.this, "Error loading image", Toast.LENGTH_SHORT).show(); }); } }).start(); }
     public void showEmptyCanvasColorPicker() { AlertDialog.Builder builder = new AlertDialog.Builder(this, R.style.ModernDialogStyle); LinearLayout mainLayout = new LinearLayout(this); mainLayout.setOrientation(LinearLayout.VERTICAL); mainLayout.setPadding(40, 40, 40, 40); TextView title = new TextView(this); title.setText("Choose Canvas Color"); title.setTextSize(20f); title.setTypeface(null, android.graphics.Typeface.BOLD); title.setTextColor(textColor); title.setGravity(Gravity.CENTER); title.setPadding(0, 0, 0, 32); mainLayout.addView(title); LayerSettingsUI.ColorPickerView colorPicker = new LayerSettingsUI.ColorPickerView(this); LinearLayout.LayoutParams wheelLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 500); colorPicker.setLayoutParams(wheelLp); mainLayout.addView(colorPicker); LinearLayout hexRow = new LinearLayout(this); hexRow.setOrientation(LinearLayout.HORIZONTAL); hexRow.setGravity(android.view.Gravity.CENTER); hexRow.setPadding(0, 32, 0, 16); TextView hexLabel = new TextView(this); hexLabel.setText("HEX: "); hexLabel.setTextColor(textColor); hexLabel.setTypeface(null, android.graphics.Typeface.BOLD); EditText etHex = new EditText(this); etHex.setText("#FFFFFF"); etHex.setTextColor(textColor); etHex.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)); hexRow.addView(hexLabel); hexRow.addView(etHex); mainLayout.addView(hexRow); Button btnCreate = new Button(this); btnCreate.setText("Create Canvas"); btnCreate.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#E91E63"))); btnCreate.setTextColor(Color.WHITE); final int[] selectedColor = {Color.WHITE}; final boolean[] isUpdating = {false}; colorPicker.setOnColorChangeListener(color -> { selectedColor[0] = color; if (!isUpdating[0]) { isUpdating[0] = true; etHex.setText(String.format("#%06X", (0xFFFFFF & color))); isUpdating[0] = false; } }); etHex.addTextChangedListener(new android.text.TextWatcher() { @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {} @Override public void onTextChanged(CharSequence s, int start, int before, int count) { if (isUpdating[0]) return; if (s.length() == 7 && s.toString().startsWith("#")) { try { int newC = Color.parseColor(s.toString()); selectedColor[0] = newC; isUpdating[0] = true; colorPicker.setColor(newC); isUpdating[0] = false; } catch (Exception ignored) {} } } @Override public void afterTextChanged(android.text.Editable s) {} }); LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT); btnLp.setMargins(0, 32, 0, 0); mainLayout.addView(btnCreate, btnLp); builder.setView(mainLayout); final AlertDialog dialog = builder.create(); if (dialog.getWindow() != null) dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent); btnCreate.setOnClickListener(v -> { dialog.dismiss(); Intent intent = new Intent(ImageEditorActivity.this, AdvancedCanvasActivity.class); intent.putExtra("bg_color", selectedColor[0]); advancedCanvasLauncher.launch(intent); }); dialog.setOnShowListener(di -> { if (dialog.getWindow() != null) { View decorView = dialog.getWindow().getDecorView(); forceDialogBackground(decorView); } }); dialog.show(); }
     public void showSaveDraftDialog() { AlertDialog.Builder builder = new AlertDialog.Builder(this, R.style.ModernDialogStyle); LinearLayout mainLayout = new LinearLayout(this); mainLayout.setOrientation(LinearLayout.VERTICAL); mainLayout.setPadding(60, 60, 60, 60); GradientDrawable bg = new GradientDrawable(); bg.setColor(isDarkTheme ? Color.parseColor("#1C1C1E") : Color.parseColor("#FFFFFF")); bg.setCornerRadius(60f); mainLayout.setBackground(bg); TextView title = new TextView(this); title.setText("Save Draft Project"); title.setTextSize(20f); title.setTypeface(null, android.graphics.Typeface.BOLD); title.setTextColor(textColor); title.setGravity(Gravity.CENTER); title.setPadding(0, 0, 0, 32); mainLayout.addView(title); EditText etName = new EditText(this); etName.setHint("Project Name..."); etName.setTextColor(textColor); etName.setHintTextColor(Color.GRAY); etName.setPadding(20, 30, 20, 30); GradientDrawable etBg = new GradientDrawable(); etBg.setColor(isDarkTheme ? Color.parseColor("#2C2C2E") : Color.parseColor("#F2F2F7")); etBg.setCornerRadius(20f); etName.setBackground(etBg); mainLayout.addView(etName); LinearLayout row = new LinearLayout(this); row.setOrientation(LinearLayout.HORIZONTAL); row.setPadding(0, 40, 0, 0); Button btnCancel = new Button(this); btnCancel.setText("Cancel"); btnCancel.setTextColor(Color.WHITE); btnCancel.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#FF3B30"))); LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f); btnLp.setMargins(0, 0, 10, 0); btnCancel.setLayoutParams(btnLp); Button btnSave = new Button(this); btnSave.setText("Save"); btnSave.setTextColor(Color.WHITE); btnSave.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#34C759"))); LinearLayout.LayoutParams btnLp2 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f); btnLp2.setMargins(10, 0, 0, 0); btnSave.setLayoutParams(btnLp2); row.addView(btnCancel); row.addView(btnSave); mainLayout.addView(row); builder.setView(mainLayout); final AlertDialog dialog = builder.create(); if (dialog.getWindow() != null) dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent); btnCancel.setOnClickListener(v -> dialog.dismiss()); btnSave.setOnClickListener(v -> { String name = etName.getText().toString().trim(); if (name.isEmpty()) { Toast.makeText(this, "Please enter a name", Toast.LENGTH_SHORT).show(); return; } saveDraft(name); dialog.dismiss(); hideRightPanel(); }); dialog.show(); }
     public void saveBitmapToFile(Bitmap bmp, File file) { try { FileOutputStream fos = new FileOutputStream(file); bmp.compress(Bitmap.CompressFormat.PNG, 100, fos); fos.close(); } catch(Exception e){ e.printStackTrace(); } }
@@ -337,21 +221,56 @@ public class ImageEditorActivity extends AppCompatActivity {
         public ActionRecord(DrawingToolManager.DrawStroke s) { type = 1; stroke = s; }
     }
 
+    public static class ModernSlider extends View {
+        public float progress = 0.5f; public int max = 100; public int trackColor, progressColor, textColor; private Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        public ModernSlider(Context context, boolean isDarkTheme) { super(context); trackColor = isDarkTheme ? Color.parseColor("#33FFFFFF") : Color.parseColor("#1A000000"); progressColor = isDarkTheme ? Color.WHITE : Color.parseColor("#333333"); textColor = isDarkTheme ? Color.BLACK : Color.WHITE; }
+        public void setProgress(int value) { progress = Math.max(0, Math.min(value, max)) / (float) max; invalidate(); }
+        public int getProgress() { return (int)(progress * max); }
+        @Override protected void onDraw(Canvas canvas) {
+            float r = getHeight() / 2f;
+            paint.setColor(trackColor);
+            canvas.drawRoundRect(0, 0, getWidth(), getHeight(), r, r, paint);
+
+            paint.setTextSize(getHeight() * 0.40f);
+            paint.setTypeface(Typeface.DEFAULT_BOLD);
+            String valStr = String.valueOf((int)(progress * max));
+            Paint.FontMetrics fm = paint.getFontMetrics();
+            float textY = (getHeight() - fm.ascent - fm.descent) / 2f;
+            float textX = getWidth() - getHeight() * 0.6f - paint.measureText(valStr);
+
+            paint.setColor(progressColor);
+            canvas.drawText(valStr, textX, textY, paint);
+
+            float right = Math.max(getHeight(), getWidth() * progress);
+
+            canvas.save();
+            android.graphics.Path clipPath = new android.graphics.Path();
+            clipPath.addRoundRect(0, 0, right, getHeight(), r, r, android.graphics.Path.Direction.CW);
+            canvas.clipPath(clipPath);
+
+            paint.setColor(progressColor);
+            canvas.drawRoundRect(0, 0, right, getHeight(), r, r, paint);
+
+            paint.setColor(textColor);
+            canvas.drawText(valStr, textX, textY, paint);
+            canvas.restore();
+        }
+        @Override public boolean onTouchEvent(MotionEvent event) { if (event.getAction() == MotionEvent.ACTION_DOWN || event.getAction() == MotionEvent.ACTION_MOVE) { progress = Math.max(0f, Math.min(event.getX() / getWidth(), 1f)); invalidate(); return true; } return super.onTouchEvent(event); }
+    }
+
     public static class PhotoEditorView extends View {
-        private Bitmap baseImage; private final RectF destRect = new RectF(); private final Paint bitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+        public Bitmap baseImage; private final RectF destRect = new RectF(); private final Paint bitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
         public final DrawingToolManager drawingManager = new DrawingToolManager();
         private final Paint checkerPaint = new Paint(Paint.FILTER_BITMAP_FLAG); private final Paint autoPunchPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG); private final Paint hqPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
         public boolean isBgRemoverMode = false; public boolean isAutoColorRemovalMode = false; public boolean isBgRepairMode = false;
         public float currentSmoothLevel = 0f; public Bitmap rawEraseMask = null;
+        public float currentBrushHardness = 100f;
         public boolean isZoomMode = false; public boolean isGridMode = false; public boolean isLayerOutMode = false;
-
-        /* NATIVE FIELDS FOR BG REMOVER PRECISION EDITING & MULTI-TOUCH ZOOM */
         public int tBgColor = 0; public int customBgRemoverBgColor = 0; public boolean isBgZoomMode = false;
-
         private boolean isColorPickerMode = false; private EyedropperCallback eyedropperCallback; private float pickerX = 0, pickerY = 0; private int pickerColor = Color.BLACK;
         private float viewZoom = 1f, viewPanX = 0f, viewPanY = 0f; private android.view.ScaleGestureDetector scaleDetector;
         public float imgBrightness = 0f, imgContrast = 1f, imgSaturation = 1f, imgHue = 0f;
-        private final List<LayerSettingsUI.GraphicLayer> graphicLayers = new ArrayList<>(); private final List<ActionRecord> undoStack = new ArrayList<>(); private final List<ActionRecord> redoStack = new ArrayList<>();
+        public final List<LayerSettingsUI.GraphicLayer> graphicLayers = new ArrayList<>(); private final List<ActionRecord> undoStack = new ArrayList<>(); private final List<ActionRecord> redoStack = new ArrayList<>();
         private LayerSettingsUI.GraphicLayer activeLayer = null; private Runnable layerListener;
         public interface TextDoubleTapListener { void onDoubleTap(LayerSettingsUI.GraphicLayer layer); } private TextDoubleTapListener textDoubleTapListener; public void setTextDoubleTapListener(TextDoubleTapListener listener) { this.textDoubleTapListener = listener; } private long lastTapTime = 0;
         public interface OnModeChangeListener { void onModeChanged(); } private OnModeChangeListener modeListener; public void setOnModeChangeListener(OnModeChangeListener listener) { this.modeListener = listener; }
@@ -368,7 +287,6 @@ public class ImageEditorActivity extends AppCompatActivity {
         public PhotoEditorView(Context context) { super(context); init(context); }
         private void init(Context context) { setLayerType(View.LAYER_TYPE_HARDWARE, null); setupPaints(); setupCheckerboard(); scaleDetector = new android.view.ScaleGestureDetector(context, new android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() { @Override public boolean onScale(@NonNull android.view.ScaleGestureDetector detector) { viewZoom = Math.max(1f, Math.min(viewZoom * detector.getScaleFactor(), 10f)); invalidate(); return true; } }); }
         private void setupPaints() { bitmapPaint.setDither(true); borderShadowPaint.setColor(Color.BLACK); borderShadowPaint.setStyle(Paint.Style.STROKE); borderShadowPaint.setStrokeWidth(8f); borderPaint.setColor(Color.WHITE); borderPaint.setStyle(Paint.Style.STROKE); borderPaint.setStrokeWidth(4f); handleShadowPaint.setColor(Color.BLACK); handleShadowPaint.setStyle(Paint.Style.FILL); handlePaint.setColor(Color.WHITE); handlePaint.setStyle(Paint.Style.FILL); deletePaint.setColor(Color.parseColor("#FF3B30")); deletePaint.setStyle(Paint.Style.FILL); deleteXPaint.setColor(Color.WHITE); deleteXPaint.setStyle(Paint.Style.STROKE); deleteXPaint.setStrokeWidth(4f); maskPaint.setColor(Color.argb(180, 0, 0, 0)); maskPaint.setStyle(Paint.Style.FILL); gridShadowPaint.setColor(Color.argb(120, 0, 0, 0)); gridShadowPaint.setStyle(Paint.Style.STROKE); gridShadowPaint.setStrokeWidth(4f); gridPaint.setColor(Color.argb(200, 255, 255, 255)); gridPaint.setStyle(Paint.Style.STROKE); gridPaint.setStrokeWidth(2f); autoPunchPaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_OUT)); pickerBorderPaint.setColor(Color.WHITE); pickerBorderPaint.setStyle(Paint.Style.STROKE); pickerBorderPaint.setStrokeWidth(6f); pickerBorderPaint.setShadowLayer(4f, 0, 0, Color.BLACK); pickerFillPaint.setStyle(Paint.Style.FILL); }
-
         private void setupCheckerboard() { Bitmap cb = Bitmap.createBitmap(40, 40, Bitmap.Config.ARGB_8888); Canvas cc = new Canvas(cb); Paint p = new Paint(); p.setColor(Color.parseColor("#CCCCCC")); cc.drawRect(0, 0, 40, 40, p); p.setColor(Color.parseColor("#FFFFFF")); cc.drawRect(0, 0, 20, 20, p); cc.drawRect(20, 20, 40, 40, p); checkerPaint.setShader(new BitmapShader(cb, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)); }
 
         public void setOnLayerChangeListener(Runnable listener) { this.layerListener = listener; }
@@ -409,11 +327,8 @@ public class ImageEditorActivity extends AppCompatActivity {
             if (isLayerCropping && activeLayer != null && activeLayer.type == 1) { Bitmap targetBmp = activeLayer.bitmap; float scale = Math.min((float) getWidth() / targetBmp.getWidth(), (float) getHeight() / targetBmp.getHeight()) * 0.8f; float dx = (getWidth() - targetBmp.getWidth() * scale) / 2f + viewPanX; float dy = (getHeight() - targetBmp.getHeight() * scale) / 2f + viewPanY; destRect.set(dx, dy, dx + targetBmp.getWidth() * scale, dy + targetBmp.getHeight() * scale); canvas.drawRect(destRect, checkerPaint); canvas.drawBitmap(targetBmp, null, destRect, bitmapPaint); drawCropUI(canvas); return; }
             if (baseImage == null) return;
             float scale = Math.min((float) getWidth() / baseImage.getWidth(), (float) getHeight() / baseImage.getHeight()) * viewZoom; float dx = (getWidth() - baseImage.getWidth() * scale) / 2f + viewPanX; float dy = (getHeight() - baseImage.getHeight() * scale) / 2f + viewPanY; destRect.set(dx, dy, dx + baseImage.getWidth() * scale, dy + baseImage.getHeight() * scale);
-
-            /* NATIVE CANVAS OVERRIDE: Paints custom solid colors when editing inside BG Remover! */
             int bgRemoverColor = (customBgRemoverBgColor != 0) ? customBgRemoverBgColor : tBgColor;
             if (isBgRemoverMode && bgRemoverColor != 0) { Paint bgP = new Paint(); bgP.setColor(bgRemoverColor); canvas.drawRect(destRect, bgP); } else { canvas.drawRect(destRect, checkerPaint); }
-
             boolean hasEraseLayer = drawingManager.getEraseLayerBitmap() != null; int sc = -1;
             if (hasEraseLayer) { sc = canvas.saveLayer(destRect, null); }
             canvas.drawBitmap(baseImage, null, destRect, bitmapPaint);
@@ -428,20 +343,14 @@ public class ImageEditorActivity extends AppCompatActivity {
                     drawBoxMat.reset(); drawBoxMat.postTranslate(destRect.centerX(), destRect.centerY()); drawBoxMat.preScale(destRect.width() / baseImage.getWidth(), destRect.height() / baseImage.getHeight()); drawBoxMat.preTranslate(layer.x, layer.y); drawBoxMat.preRotate(layer.rotation);
                     float l = layer.bounds.left * layer.scaleX; float t = layer.bounds.top * layer.scaleY; float r = layer.bounds.right * layer.scaleX; float b = layer.bounds.bottom * layer.scaleY; float cx = (l + r) / 2f; float cy = (t + b) / 2f;
                     activeLayerPts[0] = l; activeLayerPts[1] = t; activeLayerPts[2] = r; activeLayerPts[3] = t; activeLayerPts[4] = r; activeLayerPts[5] = b; activeLayerPts[6] = l; activeLayerPts[7] = b; activeLayerPts[8] = cx; activeLayerPts[9] = t - 80f; activeLayerPts[10] = cx; activeLayerPts[11] = t; activeLayerPts[12] = r; activeLayerPts[13] = cy; activeLayerPts[14] = cx; activeLayerPts[15] = b;
-                    drawBoxMat.mapPoints(activeLayerPts);
-                    drawBoxPath.reset(); drawBoxPath.moveTo(activeLayerPts[0], activeLayerPts[1]); drawBoxPath.lineTo(activeLayerPts[2], activeLayerPts[3]); drawBoxPath.lineTo(activeLayerPts[4], activeLayerPts[5]); drawBoxPath.lineTo(activeLayerPts[6], activeLayerPts[7]); drawBoxPath.close();
+                    drawBoxMat.mapPoints(activeLayerPts); drawBoxPath.reset(); drawBoxPath.moveTo(activeLayerPts[0], activeLayerPts[1]); drawBoxPath.lineTo(activeLayerPts[2], activeLayerPts[3]); drawBoxPath.lineTo(activeLayerPts[4], activeLayerPts[5]); drawBoxPath.lineTo(activeLayerPts[6], activeLayerPts[7]); drawBoxPath.close();
                     canvas.drawPath(drawBoxPath, borderShadowPaint); canvas.drawPath(drawBoxPath, borderPaint);
                     canvas.drawLine(activeLayerPts[10], activeLayerPts[11], activeLayerPts[8], activeLayerPts[9], borderShadowPaint); canvas.drawLine(activeLayerPts[10], activeLayerPts[11], activeLayerPts[8], activeLayerPts[9], borderPaint);
                     drawShadowHandle(canvas, activeLayerPts[0], activeLayerPts[1], true, false); drawShadowHandle(canvas, activeLayerPts[4], activeLayerPts[5], false, false); drawShadowHandle(canvas, activeLayerPts[8], activeLayerPts[9], false, false);
                     if (layer.type == 1) { drawShadowHandle(canvas, activeLayerPts[12], activeLayerPts[13], false, true); drawShadowHandle(canvas, activeLayerPts[14], activeLayerPts[15], false, true); }
                 }
-            }
-            drawCropUI(canvas);
-            if (isGridMode && !isCropping) {
-                float cellWidth = destRect.width() / 9f; float cellHeight = destRect.height() / 9f;
-                for (int i = 1; i < 9; i++) { canvas.drawLine(destRect.left + (cellWidth * i), destRect.top, destRect.left + (cellWidth * i), destRect.bottom, gridShadowPaint); canvas.drawLine(destRect.left, destRect.top + (cellHeight * i), destRect.right, destRect.top + (cellHeight * i), gridShadowPaint); canvas.drawLine(destRect.left + (cellWidth * i), destRect.top, destRect.left + (cellWidth * i), destRect.bottom, gridPaint); canvas.drawLine(destRect.left, destRect.top + (cellHeight * i), destRect.right, destRect.top + (cellHeight * i), gridPaint); }
-                canvas.drawRect(destRect, gridShadowPaint); canvas.drawRect(destRect, gridPaint);
-            }
+            } drawCropUI(canvas);
+            if (isGridMode && !isCropping) { float cellWidth = destRect.width() / 9f; float cellHeight = destRect.height() / 9f; for (int i = 1; i < 9; i++) { canvas.drawLine(destRect.left + (cellWidth * i), destRect.top, destRect.left + (cellWidth * i), destRect.bottom, gridShadowPaint); canvas.drawLine(destRect.left, destRect.top + (cellHeight * i), destRect.right, destRect.top + (cellHeight * i), gridShadowPaint); canvas.drawLine(destRect.left + (cellWidth * i), destRect.top, destRect.left + (cellWidth * i), destRect.bottom, gridPaint); canvas.drawLine(destRect.left, destRect.top + (cellHeight * i), destRect.right, destRect.top + (cellHeight * i), gridPaint); } canvas.drawRect(destRect, gridShadowPaint); canvas.drawRect(destRect, gridPaint); }
             if (isColorPickerMode && pickerX > 0 && pickerY > 0) { pickerFillPaint.setColor(pickerColor); canvas.drawCircle(pickerX, pickerY - 100f, 60f, pickerFillPaint); canvas.drawCircle(pickerX, pickerY - 100f, 60f, pickerBorderPaint); canvas.drawLine(pickerX - 20f, pickerY, pickerX + 20f, pickerY, pickerBorderPaint); canvas.drawLine(pickerX, pickerY - 20f, pickerX, pickerY + 20f, pickerBorderPaint); }
         }
 
@@ -451,83 +360,13 @@ public class ImageEditorActivity extends AppCompatActivity {
         @Override public boolean onTouchEvent(@NonNull MotionEvent event) {
             float x = event.getX(), y = event.getY();
             if (isColorPickerMode) { switch (event.getAction()) { case MotionEvent.ACTION_DOWN: case MotionEvent.ACTION_MOVE: pickerX = x; pickerY = y; pickerColor = pickColorFromImage(x, y); invalidate(); return true; case MotionEvent.ACTION_UP: isColorPickerMode = false; if (eyedropperCallback != null) eyedropperCallback.onColorPicked(pickerColor); invalidate(); return true; } }
-
-            /* NATIVE MULTI-TOUCH ZOOM INTERCEPTOR: Executes pinch-to-zoom when Zoom: ON inside BG Remover! */
             if (isZoomMode || isBgZoomMode) { scaleDetector.onTouchEvent(event); switch (event.getActionMasked()) { case MotionEvent.ACTION_DOWN: lastTouch.set(x, y); activePointerId = event.getPointerId(0); break; case MotionEvent.ACTION_MOVE: int pi = event.findPointerIndex(activePointerId); if (pi != -1) { float currX = event.getX(pi), currY = event.getY(pi); if (!scaleDetector.isInProgress()) { viewPanX += currX - lastTouch.x; viewPanY += currY - lastTouch.y; } lastTouch.set(currX, currY); invalidate(); } break; case MotionEvent.ACTION_UP: case MotionEvent.ACTION_CANCEL: activePointerId = MotionEvent.INVALID_POINTER_ID; break; } return true; }
-
             if (isPerspectiveMode) { switch (event.getAction()) { case MotionEvent.ACTION_DOWN: activePerspectiveHandle = -1; for (int i=0; i<8; i+=2) { if (Math.hypot(x - perspectiveCorners[i], y - perspectiveCorners[i+1]) < 80f) { activePerspectiveHandle = i; break; } } return true; case MotionEvent.ACTION_MOVE: if (activePerspectiveHandle != -1) { perspectiveCorners[activePerspectiveHandle] = Math.max(destRect.left, Math.min(x, destRect.right)); perspectiveCorners[activePerspectiveHandle+1] = Math.max(destRect.top, Math.min(y, destRect.bottom)); invalidate(); } return true; case MotionEvent.ACTION_UP: activePerspectiveHandle = -1; return true; } }
             if (isCropping) { switch (event.getAction()) { case MotionEvent.ACTION_DOWN: float hit = 80f; if (Math.abs(x-cropRect.left)<hit && Math.abs(y-cropRect.top)<hit) activeCropHandle=0; else if (Math.abs(x-cropRect.right)<hit && Math.abs(y-cropRect.top)<hit) activeCropHandle=1; else if (Math.abs(x-cropRect.left)<hit && Math.abs(y-cropRect.bottom)<hit) activeCropHandle=2; else if (Math.abs(x-cropRect.right)<hit && Math.abs(y-cropRect.bottom)<hit) activeCropHandle=3; else if (cropRect.contains(x,y)) activeCropHandle=4; else activeCropHandle=-1; lastTouch.set(x,y); return true; case MotionEvent.ACTION_MOVE: if (activeCropHandle != -1) { float dx = x - lastTouch.x, dy = y - lastTouch.y; RectF oldRect = new RectF(cropRect); if (activeCropHandle == 4) { cropRect.offset(dx, dy); } else { if (activeCropHandle == 0) { cropRect.left += dx; cropRect.top += dy; } else if (activeCropHandle == 1) { cropRect.right += dx; cropRect.top += dy; } else if (activeCropHandle == 2) { cropRect.left += dx; cropRect.bottom += dy; } else if (activeCropHandle == 3) { cropRect.right += dx; cropRect.bottom += dy; } if (lockedRatio > 0f) { float w = cropRect.width(); float h = w / lockedRatio; if (activeCropHandle == 0 || activeCropHandle == 1) cropRect.top = cropRect.bottom - h; else cropRect.bottom = cropRect.top + h; } } if (cropRect.width() < 100f || cropRect.height() < 100f) { cropRect.set(oldRect); } if (cropRect.left < destRect.left || cropRect.top < destRect.top || cropRect.right > destRect.right || cropRect.bottom > destRect.bottom) { if (activeCropHandle == 4) { if (cropRect.left < destRect.left) cropRect.offset(destRect.left - cropRect.left, 0); if (cropRect.top < destRect.top) cropRect.offset(0, destRect.top - cropRect.top); if (cropRect.right > destRect.right) cropRect.offset(destRect.right - cropRect.right, 0); if (cropRect.bottom > destRect.bottom) cropRect.offset(0, destRect.bottom - cropRect.bottom); } else { cropRect.set(oldRect); } } lastTouch.set(x,y); invalidate(); } return true; case MotionEvent.ACTION_UP: activeCropHandle = -1; return true; } }
             else if (isAutoColorRemovalMode) { if (event.getAction() == MotionEvent.ACTION_DOWN && destRect.contains(x, y)) { int bmpX = (int) ((x - destRect.left) * (baseImage.getWidth() / destRect.width())); int bmpY = (int) ((y - destRect.top) * (baseImage.getHeight() / destRect.height())); applyAutoColorRemoval(baseImage.getPixel(bmpX, bmpY)); isAutoColorRemovalMode = false; Toast.makeText(getContext(), "Color removed!", Toast.LENGTH_SHORT).show(); return true; } }
-            else if ((drawingManager.isDrawMode || isBgRemoverMode) && baseImage != null) {
-                float imgX = (x - destRect.left) * (baseImage.getWidth() / destRect.width()); float imgY = (y - destRect.top) * (baseImage.getHeight() / destRect.height());
-                float scaleFactor = baseImage.getWidth() / destRect.width(); drawingManager.configurePaint(scaleFactor, isBgRemoverMode, isBgRepairMode);
-                int targetCanvasState; boolean isEraser = isBgRemoverMode || (drawingManager.isDrawMode && drawingManager.isDrawEraserMode);
-                if (drawingManager.isDrawMode && drawingManager.getDrawLayerCanvas() != null) { targetCanvasState = drawingManager.isDrawEraserMode ? 1 : 0; } else if (isBgRemoverMode && drawingManager.getEraseLayerCanvas() != null) { targetCanvasState = isBgRepairMode ? 3 : 2; } else { return true; }
-                switch (event.getAction()) { case MotionEvent.ACTION_DOWN: drawingManager.onTouchDown(imgX, imgY); return true; case MotionEvent.ACTION_MOVE: drawingManager.onTouchMove(imgX, imgY, isEraser, drawingManager.isDrawMode); break; case MotionEvent.ACTION_UP: DrawingToolManager.DrawStroke stroke = drawingManager.onTouchUp(imgX, imgY, isEraser, drawingManager.isDrawMode, targetCanvasState); if (isBgRemoverMode) { currentSmoothLevel = 0f; if (rawEraseMask != null) { rawEraseMask.recycle(); rawEraseMask = null; } } redoStack.clear(); undoStack.add(new ActionRecord(stroke)); break; }
-                invalidate(); return true;
-            } else {
-                switch (event.getAction()) {
-                    case MotionEvent.ACTION_DOWN:
-                        touchMode = 0;
-                        if (activeLayer != null) {
-                            touchFwdMat.reset(); touchFwdMat.postTranslate(destRect.centerX(), destRect.centerY()); if (isLayerCropping && activeLayer != null && activeLayer.type == 1) { touchFwdMat.preScale(destRect.width() / activeLayer.bitmap.getWidth(), destRect.height() / activeLayer.bitmap.getHeight()); } else { touchFwdMat.preScale(destRect.width() / baseImage.getWidth(), destRect.height() / baseImage.getHeight()); } touchFwdMat.preTranslate(activeLayer.x, activeLayer.y); touchFwdMat.preRotate(activeLayer.rotation);
-                            float l = activeLayer.bounds.left * activeLayer.scaleX; float t = activeLayer.bounds.top * activeLayer.scaleY; float r = activeLayer.bounds.right * activeLayer.scaleX; float b = activeLayer.bounds.bottom * activeLayer.scaleY; float cx = (l + r) / 2f; float cy = (t + b) / 2f;
-                            touchHitPts[0] = l; touchHitPts[1] = t; touchHitPts[2] = r; touchHitPts[3] = t; touchHitPts[4] = r; touchHitPts[5] = b; touchHitPts[6] = l; touchHitPts[7] = b; touchHitPts[8] = cx; touchHitPts[9] = t - 80f; touchHitPts[10] = cx; touchHitPts[11] = t; touchHitPts[12] = r; touchHitPts[13] = cy; touchHitPts[14] = cx; touchHitPts[15] = b;
-                            touchFwdMat.mapPoints(touchHitPts); float[] cPt = new float[]{0f, 0f}; touchFwdMat.mapPoints(cPt); activeLayerCenterX = cPt[0]; activeLayerCenterY = cPt[1];
-                            float touchRadius = 80f;
-                            if (Math.hypot(x - touchHitPts[0], y - touchHitPts[1]) < touchRadius) { graphicLayers.remove(activeLayer); activeLayer = null; if (layerListener != null) layerListener.run(); invalidate(); return true; } else if (Math.hypot(x - touchHitPts[4], y - touchHitPts[5]) < touchRadius) { touchMode = 2; initialDist = (float)Math.hypot(x - activeLayerCenterX, y - activeLayerCenterY); initialScaleX = activeLayer.scaleX; initialScaleY = activeLayer.scaleY; return true; } else if (Math.hypot(x - touchHitPts[8], y - touchHitPts[9]) < touchRadius) { touchMode = 3; initialAngle = (float)Math.toDegrees(Math.atan2(y - activeLayerCenterY, x - activeLayerCenterX)); initialRotation = activeLayer.rotation; return true; } else if (activeLayer.type == 1 && Math.hypot(x - touchHitPts[12], y - touchHitPts[13]) < touchRadius) { touchMode = 4; float[] loc = mapTouch(activeLayer, x, y); initialDistX = Math.abs(loc[0]); initialScaleX = activeLayer.scaleX; return true; } else if (activeLayer.type == 1 && Math.hypot(x - touchHitPts[14], y - touchHitPts[15]) < touchRadius) { touchMode = 5; float[] loc = mapTouch(activeLayer, x, y); initialDistY = Math.abs(loc[1]); initialScaleY = activeLayer.scaleY; return true; }
-                        }
-                        for (int i=graphicLayers.size()-1; i>=0; i--) {
-                            LayerSettingsUI.GraphicLayer layer = graphicLayers.get(i); float[] loc = mapTouch(layer, x, y);
-                            float bl = layer.bounds.left * layer.scaleX; float bt = layer.bounds.top * layer.scaleY; float br = layer.bounds.right * layer.scaleX; float bb = layer.bounds.bottom * layer.scaleY;
-                            if (loc[0]>=bl && loc[0]<=br && loc[1]>=bt && loc[1]<=bb) {
-                                if (activeLayer == layer && layer.type == 0) { long currentTime = System.currentTimeMillis(); if (currentTime - lastTapTime < 300) { if (textDoubleTapListener != null) textDoubleTapListener.onDoubleTap(layer); lastTapTime = 0; return true; } lastTapTime = currentTime; } else { lastTapTime = System.currentTimeMillis(); }
-                                activeLayer = layer; touchMode = 1; lastTouch.set(x, y); if (layerListener != null) layerListener.run(); invalidate(); return true;
-                            }
-                        }
-                        activeLayer = null; if (layerListener != null) layerListener.run(); invalidate(); return true;
-                    case MotionEvent.ACTION_MOVE:
-                        if (activeLayer != null) {
-                            if (touchMode == 1) {
-                                activeLayer.x += (x - lastTouch.x) * (baseImage.getWidth() / destRect.width()); activeLayer.y += (y - lastTouch.y) * (baseImage.getHeight() / destRect.height());
-                                if (!isLayerOutMode) { float halfW = baseImage.getWidth() / 2f; float halfH = baseImage.getHeight() / 2f; activeLayer.x = Math.max(-halfW, Math.min(activeLayer.x, halfW)); activeLayer.y = Math.max(-halfH, Math.min(activeLayer.y, halfH)); }
-                                lastTouch.set(x,y);
-                            } else if (touchMode == 2) { float d = (float)Math.hypot(x - activeLayerCenterX, y - activeLayerCenterY); float factor = d / initialDist; activeLayer.scaleX = Math.max(0.1f, initialScaleX * factor); activeLayer.scaleY = Math.max(0.1f, initialScaleY * factor); } else if (touchMode == 3) { float a = (float)Math.toDegrees(Math.atan2(y - activeLayerCenterY, x - activeLayerCenterX)); activeLayer.rotation = initialRotation + (a - initialAngle); } else if (touchMode == 4) { float[] loc = mapTouch(activeLayer, x, y); float factor = Math.abs(loc[0]) / initialDistX; activeLayer.scaleX = Math.max(0.1f, initialScaleX * factor); } else if (touchMode == 5) { float[] loc = mapTouch(activeLayer, x, y); float factor = Math.abs(loc[1]) / initialDistY; activeLayer.scaleY = Math.max(0.1f, initialScaleY * factor); }
-                            invalidate(); return true;
-                        } break;
-                    case MotionEvent.ACTION_UP:
-                        if ((touchMode == 2 || touchMode == 4 || touchMode == 5) && activeLayer != null && activeLayer.type == 0) {
-                            if (activeLayer.scaleX != 1f || activeLayer.scaleY != 1f) {
-                                float avgScale = (activeLayer.scaleX + activeLayer.scaleY) / 2f;
-                                if (activeLayer.textPaint != null) { activeLayer.textPaint.setTextSize(activeLayer.textPaint.getTextSize() * avgScale); }
-                                activeLayer.strokeWidth *= avgScale; activeLayer.shadowRadius *= avgScale; activeLayer.innerShadowRadius *= avgScale; activeLayer.shadowOffsetX *= avgScale; activeLayer.shadowOffsetY *= avgScale; activeLayer.innerShadowOffsetX *= avgScale; activeLayer.innerShadowOffsetY *= avgScale; activeLayer.lineSpacing *= avgScale;
-                                activeLayer.scaleX = 1f; activeLayer.scaleY = 1f; activeLayer.buildStaticLayout(); activeLayer.isDirty = true; invalidate();
-                            }
-                        }
-                        touchMode = 0; return true;
-                }
-            } return super.onTouchEvent(event);
+            else if ((drawingManager.isDrawMode || isBgRemoverMode) && baseImage != null) { float imgX = (x - destRect.left) * (baseImage.getWidth() / destRect.width()); float imgY = (y - destRect.top) * (baseImage.getHeight() / destRect.height()); float scaleFactor = baseImage.getWidth() / destRect.width(); drawingManager.configurePaint(scaleFactor, isBgRemoverMode, isBgRepairMode); Paint dp = drawingManager.getCurrentDrawPaint(); if (dp != null && drawingManager.isDrawMode && !drawingManager.isDrawEraserMode && !isBgRemoverMode) { if (currentBrushHardness < 100f) { float bRad = Math.max(1f, (100f - currentBrushHardness) / 100f * (drawingManager.currentBrushWidth / 2f)); dp.setMaskFilter(new BlurMaskFilter(bRad, BlurMaskFilter.Blur.NORMAL)); } else { dp.setMaskFilter(null); } } int targetCanvasState; boolean isEraser = isBgRemoverMode || (drawingManager.isDrawMode && drawingManager.isDrawEraserMode); if (drawingManager.isDrawMode && drawingManager.getDrawLayerCanvas() != null) { targetCanvasState = drawingManager.isDrawEraserMode ? 1 : 0; } else if (isBgRemoverMode && drawingManager.getEraseLayerCanvas() != null) { targetCanvasState = isBgRepairMode ? 3 : 2; } else { return true; } switch (event.getAction()) { case MotionEvent.ACTION_DOWN: drawingManager.onTouchDown(imgX, imgY); return true; case MotionEvent.ACTION_MOVE: drawingManager.onTouchMove(imgX, imgY, isEraser, drawingManager.isDrawMode); break; case MotionEvent.ACTION_UP: DrawingToolManager.DrawStroke stroke = drawingManager.onTouchUp(imgX, imgY, isEraser, drawingManager.isDrawMode, targetCanvasState); if (isBgRemoverMode) { currentSmoothLevel = 0f; if (rawEraseMask != null) { rawEraseMask.recycle(); rawEraseMask = null; } } redoStack.clear(); undoStack.add(new ActionRecord(stroke)); break; } invalidate(); return true; } else { switch (event.getAction()) { case MotionEvent.ACTION_DOWN: touchMode = 0; if (activeLayer != null) { touchFwdMat.reset(); touchFwdMat.postTranslate(destRect.centerX(), destRect.centerY()); if (isLayerCropping && activeLayer != null && activeLayer.type == 1) { touchFwdMat.preScale(destRect.width() / activeLayer.bitmap.getWidth(), destRect.height() / activeLayer.bitmap.getHeight()); } else { touchFwdMat.preScale(destRect.width() / baseImage.getWidth(), destRect.height() / baseImage.getHeight()); } touchFwdMat.preTranslate(activeLayer.x, activeLayer.y); touchFwdMat.preRotate(activeLayer.rotation); float l = activeLayer.bounds.left * activeLayer.scaleX; float t = activeLayer.bounds.top * activeLayer.scaleY; float r = activeLayer.bounds.right * activeLayer.scaleX; float b = activeLayer.bounds.bottom * activeLayer.scaleY; float cx = (l + r) / 2f; float cy = (t + b) / 2f; touchHitPts[0] = l; touchHitPts[1] = t; touchHitPts[2] = r; touchHitPts[3] = t; touchHitPts[4] = r; touchHitPts[5] = b; touchHitPts[6] = l; touchHitPts[7] = b; touchHitPts[8] = cx; touchHitPts[9] = t - 80f; touchHitPts[10] = cx; touchHitPts[11] = t; touchHitPts[12] = r; touchHitPts[13] = cy; touchHitPts[14] = cx; touchHitPts[15] = b; touchFwdMat.mapPoints(touchHitPts); float[] cPt = new float[]{0f, 0f}; touchFwdMat.mapPoints(cPt); activeLayerCenterX = cPt[0]; activeLayerCenterY = cPt[1]; float touchRadius = 80f; if (Math.hypot(x - touchHitPts[0], y - touchHitPts[1]) < touchRadius) { graphicLayers.remove(activeLayer); activeLayer = null; if (layerListener != null) layerListener.run(); invalidate(); return true; } else if (Math.hypot(x - touchHitPts[4], y - touchHitPts[5]) < touchRadius) { touchMode = 2; initialDist = (float)Math.hypot(x - activeLayerCenterX, y - activeLayerCenterY); initialScaleX = activeLayer.scaleX; initialScaleY = activeLayer.scaleY; return true; } else if (Math.hypot(x - touchHitPts[8], y - touchHitPts[9]) < touchRadius) { touchMode = 3; initialAngle = (float)Math.toDegrees(Math.atan2(y - activeLayerCenterY, x - activeLayerCenterX)); initialRotation = activeLayer.rotation; return true; } else if (activeLayer.type == 1 && Math.hypot(x - touchHitPts[12], y - touchHitPts[13]) < touchRadius) { touchMode = 4; float[] loc = mapTouch(activeLayer, x, y); initialDistX = Math.abs(loc[0]); initialScaleX = activeLayer.scaleX; return true; } else if (activeLayer.type == 1 && Math.hypot(x - touchHitPts[14], y - touchHitPts[15]) < touchRadius) { touchMode = 5; float[] loc = mapTouch(activeLayer, x, y); initialDistY = Math.abs(loc[1]); initialScaleY = activeLayer.scaleY; return true; } } for (int i=graphicLayers.size()-1; i>=0; i--) { LayerSettingsUI.GraphicLayer layer = graphicLayers.get(i); float[] loc = mapTouch(layer, x, y); float bl = layer.bounds.left * layer.scaleX; float bt = layer.bounds.top * layer.scaleY; float br = layer.bounds.right * layer.scaleX; float bb = layer.bounds.bottom * layer.scaleY; if (loc[0]>=bl && loc[0]<=br && loc[1]>=bt && loc[1]<=bb) { if (activeLayer == layer && layer.type == 0) { long currentTime = System.currentTimeMillis(); if (currentTime - lastTapTime < 300) { if (textDoubleTapListener != null) textDoubleTapListener.onDoubleTap(layer); lastTapTime = 0; return true; } lastTapTime = currentTime; } else { lastTapTime = System.currentTimeMillis(); } activeLayer = layer; touchMode = 1; lastTouch.set(x, y); if (layerListener != null) layerListener.run(); invalidate(); return true; } } activeLayer = null; if (layerListener != null) layerListener.run(); invalidate(); return true; case MotionEvent.ACTION_MOVE: if (activeLayer != null) { if (touchMode == 1) { activeLayer.x += (x - lastTouch.x) * (baseImage.getWidth() / destRect.width()); activeLayer.y += (y - lastTouch.y) * (baseImage.getHeight() / destRect.height()); if (!isLayerOutMode) { float halfW = baseImage.getWidth() / 2f; float halfH = baseImage.getHeight() / 2f; activeLayer.x = Math.max(-halfW, Math.min(activeLayer.x, halfW)); activeLayer.y = Math.max(-halfH, Math.min(activeLayer.y, halfH)); } lastTouch.set(x,y); } else if (touchMode == 2) { float d = (float)Math.hypot(x - activeLayerCenterX, y - activeLayerCenterY); float factor = d / initialDist; activeLayer.scaleX = Math.max(0.1f, initialScaleX * factor); activeLayer.scaleY = Math.max(0.1f, initialScaleY * factor); } else if (touchMode == 3) { float a = (float)Math.toDegrees(Math.atan2(y - activeLayerCenterY, x - activeLayerCenterX)); activeLayer.rotation = initialRotation + (a - initialAngle); } else if (touchMode == 4) { float[] loc = mapTouch(activeLayer, x, y); float factor = Math.abs(loc[0]) / initialDistX; activeLayer.scaleX = Math.max(0.1f, initialScaleX * factor); } else if (touchMode == 5) { float[] loc = mapTouch(activeLayer, x, y); float factor = Math.abs(loc[1]) / initialDistY; activeLayer.scaleY = Math.max(0.1f, initialScaleY * factor); } invalidate(); return true; } break; case MotionEvent.ACTION_UP: if ((touchMode == 2 || touchMode == 4 || touchMode == 5) && activeLayer != null && activeLayer.type == 0) { if (activeLayer.scaleX != 1f || activeLayer.scaleY != 1f) { float avgScale = (activeLayer.scaleX + activeLayer.scaleY) / 2f; if (activeLayer.textPaint != null) { activeLayer.textPaint.setTextSize(activeLayer.textPaint.getTextSize() * avgScale); } activeLayer.strokeWidth *= avgScale; activeLayer.shadowRadius *= avgScale; activeLayer.innerShadowRadius *= avgScale; activeLayer.shadowOffsetX *= avgScale; activeLayer.shadowOffsetY *= avgScale; activeLayer.innerShadowOffsetX *= avgScale; activeLayer.innerShadowOffsetY *= avgScale; activeLayer.lineSpacing *= avgScale; activeLayer.scaleX = 1f; activeLayer.scaleY = 1f; activeLayer.buildStaticLayout(); activeLayer.isDirty = true; invalidate(); } } touchMode = 0; return true; } } return super.onTouchEvent(event);
         }
-
-        private void applyAutoColorRemoval(int colorToMatch) {
-            if (baseImage == null || drawingManager.getEraseLayerCanvas() == null) return;
-            Bitmap eraseBitmap = drawingManager.getEraseLayerBitmap(); int width = eraseBitmap.getWidth(), height = eraseBitmap.getHeight(); int[] maskPixels = new int[width * height];
-            int rT = Color.red(colorToMatch), gT = Color.green(colorToMatch), bT = Color.blue(colorToMatch); eraseBitmap.getPixels(maskPixels, 0, width, 0, 0, width, height);
-            for (int i=0; i < maskPixels.length; i++) { int bmpC = baseImage.getPixel(i % width, i / width); if (Color.alpha(bmpC) == 0) continue; if (Math.abs(Color.red(bmpC) - rT) <= 25 && Math.abs(Color.green(bmpC) - gT) <= 25 && Math.abs(Color.blue(bmpC) - bT) <= 25) { maskPixels[i] = Color.BLACK; } }
-            eraseBitmap.setPixels(maskPixels, 0, width, 0, 0, width, height); currentSmoothLevel = 0f; if (rawEraseMask != null) { rawEraseMask.recycle(); rawEraseMask = null; } invalidate();
-        }
-
-        public Bitmap getRenderedBitmap(boolean isForExport) {
-            boolean tc = isCropping; LayerSettingsUI.GraphicLayer tl = activeLayer; boolean tp = isPerspectiveMode;
-            if (isForExport) { isCropping = false; isPerspectiveMode = false; activeLayer = null; }
-            Bitmap result = null; float exportScale = 1.0f; int maxAttempts = 3;
-            while (maxAttempts > 0) { try { int w = (int) (baseImage.getWidth() * exportScale); int h = (int) (baseImage.getHeight() * exportScale); result = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888); break; } catch (OutOfMemoryError e) { System.gc(); exportScale *= 0.75f; maxAttempts--; } }
-            if (result == null) { result = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888); }
-            Canvas canvas = new Canvas(result); if (exportScale != 1.0f) { canvas.scale(exportScale, exportScale); }
-            int sc = canvas.saveLayer(0, 0, baseImage.getWidth(), baseImage.getHeight(), null); canvas.drawBitmap(baseImage, 0, 0, bitmapPaint); if (drawingManager.getEraseLayerBitmap() != null) { canvas.drawBitmap(drawingManager.getEraseLayerBitmap(), 0, 0, autoPunchPaint); } canvas.restoreToCount(sc);
-            if (drawingManager.getDrawLayerBitmap() != null) { canvas.drawBitmap(drawingManager.getDrawLayerBitmap(), 0, 0, hqPaint); }
-            for (LayerSettingsUI.GraphicLayer layer : graphicLayers) { canvas.save(); if (!isLayerOutMode && !isForExport) { canvas.clipRect(0, 0, baseImage.getWidth(), baseImage.getHeight()); } canvas.translate(baseImage.getWidth() / 2f, baseImage.getHeight() / 2f); canvas.translate(layer.x, layer.y); canvas.rotate(layer.rotation); canvas.scale(layer.scaleX, layer.scaleY); layer.drawLayer(canvas); canvas.restore(); }
-            if (isForExport) { isCropping = tc; activeLayer = tl; isPerspectiveMode = tp; } return result;
-        }
+        private void applyAutoColorRemoval(int colorToMatch) { if (baseImage == null || drawingManager.getEraseLayerCanvas() == null) return; Bitmap eraseBitmap = drawingManager.getEraseLayerBitmap(); int width = eraseBitmap.getWidth(), height = eraseBitmap.getHeight(); int[] maskPixels = new int[width * height]; int rT = Color.red(colorToMatch), gT = Color.green(colorToMatch), bT = Color.blue(colorToMatch); eraseBitmap.getPixels(maskPixels, 0, width, 0, 0, width, height); for (int i=0; i < maskPixels.length; i++) { int bmpC = baseImage.getPixel(i % width, i / width); if (Color.alpha(bmpC) == 0) continue; if (Math.abs(Color.red(bmpC) - rT) <= 25 && Math.abs(Color.green(bmpC) - gT) <= 25 && Math.abs(Color.blue(bmpC) - bT) <= 25) { maskPixels[i] = Color.BLACK; } } eraseBitmap.setPixels(maskPixels, 0, width, 0, 0, width, height); currentSmoothLevel = 0f; if (rawEraseMask != null) { rawEraseMask.recycle(); rawEraseMask = null; } invalidate(); }
+        public Bitmap getRenderedBitmap(boolean isForExport) { boolean tc = isCropping; LayerSettingsUI.GraphicLayer tl = activeLayer; boolean tp = isPerspectiveMode; if (isForExport) { isCropping = false; isPerspectiveMode = false; activeLayer = null; } Bitmap result = null; float exportScale = 1.0f; int maxAttempts = 3; while (maxAttempts > 0) { try { int w = (int) (baseImage.getWidth() * exportScale); int h = (int) (baseImage.getHeight() * exportScale); result = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888); break; } catch (OutOfMemoryError e) { System.gc(); exportScale *= 0.75f; maxAttempts--; } } if (result == null) { result = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888); } Canvas canvas = new Canvas(result); if (exportScale != 1.0f) { canvas.scale(exportScale, exportScale); } int sc = canvas.saveLayer(0, 0, baseImage.getWidth(), baseImage.getHeight(), null); canvas.drawBitmap(baseImage, 0, 0, bitmapPaint); if (drawingManager.getEraseLayerBitmap() != null) { canvas.drawBitmap(drawingManager.getEraseLayerBitmap(), 0, 0, autoPunchPaint); } canvas.restoreToCount(sc); if (drawingManager.getDrawLayerBitmap() != null) { canvas.drawBitmap(drawingManager.getDrawLayerBitmap(), 0, 0, hqPaint); } for (LayerSettingsUI.GraphicLayer layer : graphicLayers) { canvas.save(); if (!isLayerOutMode && !isForExport) { canvas.clipRect(0, 0, baseImage.getWidth(), baseImage.getHeight()); } canvas.translate(baseImage.getWidth() / 2f, baseImage.getHeight() / 2f); canvas.translate(layer.x, layer.y); canvas.rotate(layer.rotation); canvas.scale(layer.scaleX, layer.scaleY); layer.drawLayer(canvas); canvas.restore(); } if (isForExport) { isCropping = tc; activeLayer = tl; isPerspectiveMode = tp; } return result; }
     }
 }
