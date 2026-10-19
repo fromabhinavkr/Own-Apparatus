@@ -1,0 +1,309 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/breakoutRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- The Thrive Game Engine Canvas will be injected here -->
+    <FrameLayout
+        android:id="@+id/gameContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Top HUD: Unified Smart Pill -->
+    <RelativeLayout
+        android:id="@+id/topHud"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentTop="true"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="8dp"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:elevation="4dp"
+        tools:ignore="UselessParent">
+
+        <!-- Unified Smart Pill: Centered for Landscape Balance -->
+        <LinearLayout
+            android:id="@+id/btnPause"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerHorizontal="true"
+            android:layout_centerVertical="true"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:paddingEnd="22dp"
+            android:paddingStart="6dp"
+            android:clickable="true"
+            android:focusable="true">
+
+            <!-- Inner Colored Square Box for Pause/Play Icon -->
+            <FrameLayout
+                android:id="@+id/pauseIconContainer"
+                android:layout_width="38dp"
+                android:layout_height="38dp" />
+
+            <!-- FrameLayout overlays Tap to fight and Score UI -->
+            <FrameLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:layout_gravity="center_vertical">
+
+                <!-- Initially Visible: Tap to fight Hint -->
+                <TextView
+                    android:id="@+id/tvTapToStart"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Tap to fight"
+                    android:textSize="15sp"
+                    android:singleLine="true"
+                    android:textStyle="bold"
+                    android:layout_gravity="center_vertical" />
+
+                <!-- Hidden until gameplay starts: Score Container -->
+                <LinearLayout
+                    android:id="@+id/scoreContainer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:id="@+id/tvScore"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/score_0"
+                        android:textSize="15sp"
+                        android:singleLine="true"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvBestScore"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/best_0"
+                        android:textSize="11sp"
+                        android:singleLine="true"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </FrameLayout>
+        </LinearLayout>
+    </RelativeLayout>
+
+    <!-- Pause Overlay (Wrapped in ScrollView for Landscape Support) -->
+    <RelativeLayout
+        android:id="@+id/pauseOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#99000000"
+        android:visibility="gone"
+        android:elevation="10dp"
+        android:clipToPadding="false"
+        android:clipChildren="false"
+        tools:ignore="UselessParent">
+
+        <ScrollView
+            android:layout_width="420dp"
+            android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:layout_marginHorizontal="28dp"
+            android:scrollbars="none"
+            android:clipToPadding="false">
+
+            <LinearLayout
+                android:id="@+id/pauseCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingTop="28dp"
+                android:paddingBottom="36dp"
+                android:paddingHorizontal="24dp"
+                android:gravity="center"
+                android:clipToPadding="false">
+
+                <TextView
+                    android:id="@+id/tvPauseTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/paused"
+                    android:textSize="26sp"
+                    android:textStyle="bold"
+                    android:gravity="center"
+                    android:layout_marginBottom="20dp" />
+
+                <Button
+                    android:id="@+id/btnResume"
+                    style="@style/ModernButtonStyle"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:textSize="16sp"
+                    android:backgroundTint="#34C759"
+                    android:textColor="#FFFFFF"
+                    android:text="@string/resume_game" />
+
+                <!-- Settings Row: Vibration & Music -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:baselineAligned="false"
+                    android:layout_marginTop="10dp">
+
+                    <Button
+                        android:id="@+id/btnToggleVibration"
+                        style="@style/ModernButtonStyle"
+                        android:layout_width="0dp"
+                        android:layout_height="52dp"
+                        android:layout_weight="1"
+                        android:textSize="14sp"
+                        android:backgroundTint="#8E8E93"
+                        android:textColor="#FFFFFF"
+                        android:text="@string/vib_on"
+                        android:layout_marginEnd="4dp" />
+
+                    <Button
+                        android:id="@+id/btnToggleMusic"
+                        style="@style/ModernButtonStyle"
+                        android:layout_width="0dp"
+                        android:layout_height="52dp"
+                        android:layout_weight="1"
+                        android:textSize="14sp"
+                        android:backgroundTint="#8E8E93"
+                        android:textColor="#FFFFFF"
+                        android:text="@string/music_on"
+                        android:layout_marginStart="4dp"
+                        android:layout_marginEnd="4dp" />
+
+                    <Button
+                        android:id="@+id/btnToggleEnemySound"
+                        style="@style/ModernButtonStyle"
+                        android:layout_width="0dp"
+                        android:layout_height="52dp"
+                        android:layout_weight="1"
+                        android:textSize="12sp"
+                        android:lines="2"
+                        android:padding="0dp"
+                        android:backgroundTint="#8E8E93"
+                        android:textColor="#FFFFFF"
+                        android:text="Enemy\nSound: OFF"
+                        android:layout_marginStart="4dp" />
+                </LinearLayout>
+
+                <!-- Toggle Speed / Difficulty Button -->
+                <Button
+                    android:id="@+id/btnToggleSpeed"
+                    style="@style/ModernButtonStyle"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:textSize="16sp"
+                    android:backgroundTint="#8E8E93"
+                    android:textColor="#FFFFFF"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/speed_easy" />
+
+                <Button
+                    android:id="@+id/btnQuitFromPause"
+                    style="@style/ModernButtonStyle"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:textSize="16sp"
+                    android:backgroundTint="#FF3B30"
+                    android:textColor="#FFFFFF"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/exit_game" />
+            </LinearLayout>
+        </ScrollView>
+    </RelativeLayout>
+
+    <!-- Game Over Overlay (Wrapped in ScrollView for Landscape Support) -->
+    <RelativeLayout
+        android:id="@+id/gameOverOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#99000000"
+        android:visibility="gone"
+        android:elevation="10dp"
+        android:clipToPadding="false"
+        android:clipChildren="false"
+        tools:ignore="UselessParent">
+
+        <ScrollView
+            android:layout_width="420dp"
+            android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:layout_marginHorizontal="28dp"
+            android:scrollbars="none"
+            android:clipToPadding="false">
+
+            <LinearLayout
+                android:id="@+id/gameOverCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingTop="28dp"
+                android:paddingBottom="36dp"
+                android:paddingHorizontal="24dp"
+                android:gravity="center"
+                android:clipToPadding="false">
+
+                <TextView
+                    android:id="@+id/tvGameOverTitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/game_over"
+                    android:textStyle="bold"
+                    android:textSize="30sp"
+                    android:gravity="center"
+                    android:layout_marginBottom="8dp" />
+
+                <!-- Dedicated High Score Banner -->
+                <TextView
+                    android:id="@+id/tvNewHighScoreBanner"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/new_high_score"
+                    android:textColor="#FFD700"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:gravity="center"
+                    android:visibility="gone"
+                    android:layout_marginBottom="14dp" />
+
+                <TextView
+                    android:id="@+id/tvFinalScore"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/score_0"
+                    android:textSize="22sp"
+                    android:layout_marginBottom="20dp" />
+
+                <Button
+                    android:id="@+id/btnRestart"
+                    style="@style/ModernButtonStyle"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:textSize="16sp"
+                    android:backgroundTint="#4A90E2"
+                    android:textColor="#FFFFFF"
+                    android:text="@string/play_again" />
+
+                <Button
+                    android:id="@+id/btnQuit"
+                    style="@style/ModernButtonStyle"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:textSize="16sp"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/quit" />
+            </LinearLayout>
+        </ScrollView>
+    </RelativeLayout>
+
+</RelativeLayout>

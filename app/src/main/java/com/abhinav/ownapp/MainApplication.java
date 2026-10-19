@@ -76,7 +76,6 @@ public class MainApplication extends Application {
                     }
                 } else {
                     // 2. ORIGINAL PADDING BEHAVIOR for Collage Studio, Audio Studio, PDF Studio, etc.
-                    // This perfectly restores the status bar boundaries exactly how you had it earlier!
                     if (contentView != null) {
                         contentView.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
                     }
@@ -132,7 +131,8 @@ public class MainApplication extends Application {
     }
 
     private boolean isExemptedActivity(Activity activity) {
-        return activity instanceof GlobeGameActivity ||
+        return activity instanceof ThriveActivity ||
+                activity instanceof GlobeGameActivity ||
                 activity instanceof GamesGalleryActivity ||
                 activity instanceof ToolsGalleryActivity ||
                 activity instanceof UtilitiesGalleryActivity ||

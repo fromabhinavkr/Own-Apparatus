@@ -2,11 +2,17 @@ package com.abhinav.ownapp;
 
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
+import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.content.res.Configuration;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
@@ -43,46 +49,14 @@ public class GamesGalleryActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // FIX: Keep the underlying window PERMANENTLY transparent to avoid animation glitching
+        // Keep the underlying window permanently transparent to avoid animation glitching
         getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
         }
 
+        // Automatically loads res/layout/ in Portrait and res/layout-land/ in Landscape
         setContentView(R.layout.activity_games_gallery);
-
-        // ADAPTIVE LAYOUT LOGIC: Programmatic fix for Landscape vs Portrait
-        GridLayout gridLayout = findViewById(R.id.gamesGridLayout);
-        if (gridLayout != null) {
-            boolean isLandscape = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
-            gridLayout.setColumnCount(isLandscape ? 4 : 2);
-
-            // 100dp height limit exclusively for Landscape mode
-            int landscapeHeight = (int) (100 * getResources().getDisplayMetrics().density);
-
-            int[] cardIds = {R.id.cardSnakeGame, R.id.cardFlappyBird, R.id.cardTetris,
-                    R.id.cardBreakout, R.id.cardMazeBall, R.id.cardMyPlanet};
-
-            for (int id : cardIds) {
-                LinearLayout card = findViewById(id);
-                if (card != null) {
-                    // 1. Force the GridLayout to refresh its column weights dynamically
-                    GridLayout.LayoutParams params = (GridLayout.LayoutParams) card.getLayoutParams();
-                    params.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1, 1f);
-                    card.setLayoutParams(params);
-
-                    // 2. Safely override the Image Height without touching your XML
-                    ImageView img = (ImageView) card.getChildAt(0);
-                    if (isLandscape) {
-                        img.getLayoutParams().height = landscapeHeight;
-                    } else {
-                        // Keeps your requested WRAP_CONTENT perfectly intact for Portrait
-                        img.getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
-                    }
-                    img.requestLayout();
-                }
-            }
-        }
 
         // --- 3-STATE THEME LOGIC ---
         SharedPreferences prefs = getSharedPreferences(SnakeWidget.PREFS_NAME, MODE_PRIVATE);
@@ -116,6 +90,7 @@ public class GamesGalleryActivity extends AppCompatActivity {
 
         // Link Views
         root = findViewById(R.id.gamesGalleryRoot);
+        GridLayout gridLayout = findViewById(R.id.gamesGridLayout);
         TextView title = findViewById(R.id.tvGamesTitle);
         TextView subtitle = findViewById(R.id.tvGamesSubtitle);
 
@@ -145,30 +120,39 @@ public class GamesGalleryActivity extends AppCompatActivity {
         // Apply Status Bar Icons immediately
         enforceStatusBarIcons();
 
-        // --- Handle Circular Reveal Entry Animation ---
+        // --- Handle Circular Reveal Entry Animation (Only on initial launch, not rotation) ---
         Intent intent = getIntent();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            root.setVisibility(View.INVISIBLE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && root != null) {
+            if (savedInstanceState == null) {
+                root.setVisibility(View.INVISIBLE);
 
-            ViewTreeObserver viewTreeObserver = root.getViewTreeObserver();
-            if (viewTreeObserver.isAlive()) {
-                viewTreeObserver.addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
-                    @Override
-                    public void onGlobalLayout() {
-                        root.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                ViewTreeObserver viewTreeObserver = root.getViewTreeObserver();
+                if (viewTreeObserver.isAlive()) {
+                    viewTreeObserver.addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
+                        @Override
+                        public void onGlobalLayout() {
+                            root.getViewTreeObserver().removeOnGlobalLayoutListener(this);
 
-                        revealX = intent.getIntExtra("REVEAL_X", root.getWidth() / 2);
-                        revealY = intent.getIntExtra("REVEAL_Y", root.getHeight() / 2);
+                            revealX = intent.getIntExtra("REVEAL_X", root.getWidth() / 2);
+                            revealY = intent.getIntExtra("REVEAL_Y", root.getHeight() / 2);
 
-                        float finalRadius = (float) Math.hypot(root.getWidth(), root.getHeight());
+                            float finalRadius = (float) Math.hypot(root.getWidth(), root.getHeight());
 
-                        Animator circularReveal = ViewAnimationUtils.createCircularReveal(root, revealX, revealY, 0, finalRadius);
-                        circularReveal.setDuration(350);
-                        circularReveal.setInterpolator(new DecelerateInterpolator());
+                            Animator circularReveal = ViewAnimationUtils.createCircularReveal(root, revealX, revealY, 0, finalRadius);
+                            circularReveal.setDuration(350);
+                            circularReveal.setInterpolator(new DecelerateInterpolator());
 
-                        root.setVisibility(View.VISIBLE);
-                        circularReveal.start();
-                    }
+                            root.setVisibility(View.VISIBLE);
+                            circularReveal.start();
+                        }
+                    });
+                }
+            } else {
+                // On orientation change, show immediately and keep reveal coordinates centered for exit
+                root.setVisibility(View.VISIBLE);
+                root.post(() -> {
+                    revealX = intent.getIntExtra("REVEAL_X", root.getWidth() / 2);
+                    revealY = intent.getIntExtra("REVEAL_Y", root.getHeight() / 2);
                 });
             }
         }
@@ -177,10 +161,12 @@ public class GamesGalleryActivity extends AppCompatActivity {
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && root.isAttachedToWindow()) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && root != null && root.isAttachedToWindow()) {
+                    int exitX = (revealX > 0 && revealX <= root.getWidth()) ? revealX : root.getWidth() / 2;
+                    int exitY = (revealY > 0 && revealY <= root.getHeight()) ? revealY : root.getHeight() / 2;
 
                     float startRadius = (float) Math.hypot(root.getWidth(), root.getHeight());
-                    Animator circularReveal = ViewAnimationUtils.createCircularReveal(root, revealX, revealY, startRadius, 0);
+                    Animator circularReveal = ViewAnimationUtils.createCircularReveal(root, exitX, exitY, startRadius, 0);
                     circularReveal.setDuration(350);
                     circularReveal.setInterpolator(new DecelerateInterpolator());
 
@@ -200,44 +186,39 @@ public class GamesGalleryActivity extends AppCompatActivity {
             }
         });
 
-        // Apply dynamic background to the cards to match theme
-        GradientDrawable cardBg = new GradientDrawable();
-        cardBg.setColor(cardColor);
-        cardBg.setCornerRadius(32f);
-
         if (cardSnakeGame != null) {
-            cardSnakeGame.setBackground(cardBg);
+            cardSnakeGame.setBackground(createCardBg(cardColor));
             textSnake.setTextColor(textColor);
             cardSnakeGame.setOnClickListener(v -> startActivity(new Intent(GamesGalleryActivity.this, SnakeGameActivity.class)));
         }
 
         if (cardFlappyBird != null) {
-            cardFlappyBird.setBackground(cardBg);
+            cardFlappyBird.setBackground(createCardBg(cardColor));
             textFlappy.setTextColor(textColor);
             cardFlappyBird.setOnClickListener(v -> startActivity(new Intent(GamesGalleryActivity.this, FlappyBirdActivity.class)));
         }
 
         if (cardTetris != null) {
-            cardTetris.setBackground(cardBg);
+            cardTetris.setBackground(createCardBg(cardColor));
             textTetris.setTextColor(textColor);
             cardTetris.setOnClickListener(v -> startActivity(new Intent(GamesGalleryActivity.this, TetrisActivity.class)));
         }
 
         if (cardBreakout != null) {
-            cardBreakout.setBackground(cardBg);
+            cardBreakout.setBackground(createCardBg(cardColor));
             textBreakout.setTextColor(textColor);
             cardBreakout.setOnClickListener(v -> startActivity(new Intent(GamesGalleryActivity.this, BreakoutActivity.class)));
         }
 
         if (cardMazeBall != null) {
-            cardMazeBall.setBackground(cardBg);
+            cardMazeBall.setBackground(createCardBg(cardColor));
             textMazeBall.setTextColor(textColor);
             cardMazeBall.setOnClickListener(v -> startActivity(new Intent(GamesGalleryActivity.this, MazeBallActivity.class)));
         }
 
         // Play My Planet Logic & Theme
         if (cardMyPlanet != null) {
-            cardMyPlanet.setBackground(cardBg);
+            cardMyPlanet.setBackground(createCardBg(cardColor));
             textMyPlanet.setTextColor(textColor);
 
             GradientDrawable helpBg = new GradientDrawable();
@@ -249,10 +230,178 @@ public class GamesGalleryActivity extends AppCompatActivity {
             final int finalThemeState = themeState;
             btnHelpMyPlanet.setOnClickListener(v -> showInstructionsDialog(finalThemeState));
 
-            cardMyPlanet.setOnClickListener(v -> {
-                startActivity(new Intent(GamesGalleryActivity.this, GlobeGameActivity.class));
-            });
+            cardMyPlanet.setOnClickListener(v ->
+                    startActivity(new Intent(GamesGalleryActivity.this, GlobeGameActivity.class))
+            );
         }
+
+        // Play Thrive Card Logic & Dynamic Preview (Works with both Portrait and Landscape XMLs)
+        if (gridLayout != null && gridLayout.getChildCount() > 6) {
+            View seventhCard = gridLayout.getChildAt(6);
+            if (seventhCard instanceof LinearLayout) {
+                LinearLayout cardThrive = (LinearLayout) seventhCard;
+                cardThrive.setBackground(createCardBg(cardColor));
+
+                if (cardThrive.getChildCount() > 0 && cardThrive.getChildAt(0) instanceof ImageView) {
+                    ImageView imgThrive = (ImageView) cardThrive.getChildAt(0);
+                    @SuppressLint("DiscouragedApi")
+                    int customDrawableId = getResources().getIdentifier("thrive_preview", "drawable", getPackageName());
+                    if (customDrawableId != 0) {
+                        imgThrive.setImageResource(customDrawableId);
+                    } else {
+                        imgThrive.setImageBitmap(createThrivePreviewBitmap());
+                    }
+                }
+
+                if (cardThrive.getChildCount() > 1 && cardThrive.getChildAt(1) instanceof TextView) {
+                    TextView textThrive = (TextView) cardThrive.getChildAt(1);
+                    textThrive.setTextColor(textColor);
+                }
+
+                cardThrive.setOnClickListener(v ->
+                        startActivity(new Intent(GamesGalleryActivity.this, ThriveActivity.class))
+                );
+            }
+        }
+    }
+
+    private GradientDrawable createCardBg(int cardColor) {
+        GradientDrawable cardBg = new GradientDrawable();
+        cardBg.setColor(cardColor);
+        cardBg.setCornerRadius(32f);
+        return cardBg;
+    }
+
+    /**
+     * Generates a crisp preview thumbnail for Thrive matching the exact aspect ratio
+     * of your other game preview drawables.
+     */
+    private Bitmap createThrivePreviewBitmap() {
+        BitmapFactory.Options opts = new BitmapFactory.Options();
+        opts.inJustDecodeBounds = true;
+        BitmapFactory.decodeResource(getResources(), R.drawable.breakout_preview, opts);
+
+        int w = 400;
+        int h = (opts.outWidth > 0 && opts.outHeight > 0)
+                ? Math.round(400f * opts.outHeight / opts.outWidth)
+                : 400;
+
+        Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bmp);
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
+        stroke.setStyle(Paint.Style.STROKE);
+        stroke.setStrokeCap(Paint.Cap.ROUND);
+        stroke.setStrokeJoin(Paint.Join.ROUND);
+
+        // Rounded preview background (#112218 dark forest green)
+        RectF cardRect = new RectF(0, 0, w, h);
+        Path clipPath = new Path();
+        clipPath.addRoundRect(cardRect, 44f, 44f, Path.Direction.CW);
+        canvas.clipPath(clipPath);
+
+        paint.setColor(Color.parseColor("#112218"));
+        canvas.drawRect(cardRect, paint);
+
+        // Tactical Grid lines
+        paint.setColor(Color.parseColor("#1A3023"));
+        paint.setStrokeWidth(3f);
+        for (int gx = 80; gx < w; gx += 80) canvas.drawLine(gx, 0, gx, h, paint);
+        for (int gy = 80; gy < h; gy += 80) canvas.drawLine(0, gy, w, gy, paint);
+
+        // Bushes in top-left and top-right
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.parseColor("#1D9A50"));
+        canvas.drawCircle(35f, h * 0.22f, 68f, paint);
+        canvas.drawCircle(w * 0.82f, 28f, 64f, paint);
+        paint.setColor(Color.parseColor("#25B560"));
+        canvas.drawCircle(25f, h * 0.20f, 48f, paint);
+        canvas.drawCircle(w * 0.80f, 18f, 45f, paint);
+
+        // Red Zone Arc at bottom-right
+        paint.setColor(Color.parseColor("#B91C1C"));
+        canvas.drawCircle(w * 0.92f, h * 1.05f, 85f, paint);
+        stroke.setColor(Color.parseColor("#FBBF24"));
+        stroke.setStrokeWidth(6f);
+        canvas.drawCircle(w * 0.92f, h * 1.05f, 85f, stroke);
+
+        // Player Character in center
+        float cx = w * 0.42f;
+        float cy = h * 0.58f;
+        float r = 38f;
+
+        canvas.save();
+        canvas.translate(cx, cy);
+
+        stroke.setColor(Color.parseColor("#0D1B2A"));
+        stroke.setStrokeWidth(4.5f);
+
+        // Orange Backpack
+        Path pack = new Path();
+        pack.moveTo(-r * 1.15f, -r * 0.9f);
+        pack.lineTo(-r * 0.25f, -r * 0.65f);
+        pack.lineTo(-r * 0.25f, r * 0.65f);
+        pack.lineTo(-r * 1.15f, r * 0.9f);
+        pack.close();
+        paint.setColor(Color.parseColor("#F59E0B"));
+        canvas.drawPath(pack, paint);
+        canvas.drawPath(pack, stroke);
+
+        // Gun & Barrel
+        float gunY = r * 0.35f;
+        RectF rect = new RectF(0f, gunY - r * 0.16f, r * 1.15f, gunY + r * 0.16f);
+        paint.setColor(Color.parseColor("#F59E0B"));
+        canvas.drawRoundRect(rect, 6f, 6f, paint);
+        canvas.drawRoundRect(rect, 6f, 6f, stroke);
+
+        rect.set(r * 1.1f, gunY - r * 0.11f, r * 2.05f, gunY + r * 0.11f);
+        paint.setColor(Color.parseColor("#E2E8F0"));
+        canvas.drawRoundRect(rect, 4f, 4f, paint);
+        canvas.drawRoundRect(rect, 4f, 4f, stroke);
+
+        // Blue Arms
+        paint.setColor(Color.parseColor("#1D4ED8"));
+        canvas.save();
+        canvas.translate(r * 0.2f, -r * 0.65f);
+        canvas.rotate(28f);
+        rect.set(0f, -r * 0.2f, r * 0.85f, r * 0.2f);
+        canvas.drawRoundRect(rect, 8f, 8f, paint);
+        canvas.drawRoundRect(rect, 8f, 8f, stroke);
+        canvas.restore();
+
+        rect.set(0f, r * 0.38f, r * 0.85f, r * 0.75f);
+        canvas.drawRoundRect(rect, 8f, 8f, paint);
+        canvas.drawRoundRect(rect, 8f, 8f, stroke);
+
+        // Yellow Shoulder Pads
+        paint.setColor(Color.parseColor("#FBBF24"));
+        rect.set(-r * 0.32f, -r * 0.98f, r * 0.28f, -r * 0.58f);
+        canvas.drawRoundRect(rect, 8f, 8f, paint);
+        canvas.drawRoundRect(rect, 8f, 8f, stroke);
+
+        rect.set(-r * 0.32f, r * 0.58f, r * 0.28f, r * 0.98f);
+        canvas.drawRoundRect(rect, 8f, 8f, paint);
+        canvas.drawRoundRect(rect, 8f, 8f, stroke);
+
+        // Blue Head
+        paint.setColor(Color.parseColor("#1D4ED8"));
+        canvas.drawCircle(0f, 0f, r * 0.68f, paint);
+        canvas.drawCircle(0f, 0f, r * 0.68f, stroke);
+        canvas.restore();
+
+        // Floating Shield (Blue) & Health (Green) Bars above player
+        float barW = 92f;
+        float barH = 9f;
+        float barX = cx - barW / 2f;
+        float shieldY = cy - r - 38f;
+        float hpY = shieldY + barH + 6f;
+
+        paint.setColor(Color.parseColor("#29B6F6"));
+        canvas.drawRect(barX, shieldY, barX + barW, shieldY + barH, paint);
+        paint.setColor(Color.parseColor("#4CD964"));
+        canvas.drawRect(barX, hpY, barX + barW, hpY + barH, paint);
+
+        return bmp;
     }
 
     @Override

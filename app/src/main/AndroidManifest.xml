@@ -151,6 +151,15 @@
             android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout"
             android:theme="@style/Theme.AppCompat.NoActionBar" />
 
+        <!-- Thrive 2D Top-Down Survival Shooter Game (Landscape Locked) -->
+        <activity
+            android:name=".ThriveActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout"
+            android:theme="@style/Theme.OwnPhotoONWall"
+            tools:ignore="LockedOrientationActivity,SourceLockedOrientationActivity" />
+
         <activity
             android:name=".ToolsGalleryActivity"
             android:theme="@style/Theme.OwnPhotoONWall.Translucent"
