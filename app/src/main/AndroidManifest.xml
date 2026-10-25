@@ -160,6 +160,14 @@
             android:theme="@style/Theme.OwnPhotoONWall"
             tools:ignore="LockedOrientationActivity,SourceLockedOrientationActivity" />
 
+        <!-- DriveOn LibGDX 3D Open-World Car Driving Game Launcher -->
+        <activity
+            android:name=".DriveOnActivity"
+            android:label="DriveON"
+            android:screenOrientation="landscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout"
+            android:exported="true" />
+
         <activity
             android:name=".ToolsGalleryActivity"
             android:theme="@style/Theme.OwnPhotoONWall.Translucent"

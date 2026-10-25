@@ -53,5 +53,9 @@ dependencies {
     // Google ML Kit Document Scanner (Scan to PDF Engine)
     implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0")
 
-
+    // LibGDX 3D Open-World Driving Game Dependencies
+    val gdxVersion = "1.12.1"
+    implementation("com.badlogicgames.gdx:gdx:$gdxVersion")
+    implementation("com.badlogicgames.gdx:gdx-backend-android:$gdxVersion")
+    implementation("com.github.mgsx-dev.gdx-gltf:gltf:2.2.1")
 }

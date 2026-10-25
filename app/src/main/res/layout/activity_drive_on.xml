@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/driveOnRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#071324">
+
+    <!-- 2.5D Open-World Car Engine Container -->
+    <FrameLayout
+        android:id="@+id/gameContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Top Center Smart Pill HUD -->
+    <RelativeLayout
+        android:id="@+id/topHud"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="12dp">
+
+        <LinearLayout
+            android:id="@+id/btnPause"
+            android:layout_width="wrap_content"
+            android:layout_height="50dp"
+            android:layout_centerHorizontal="true"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="6dp"
+            android:paddingEnd="20dp">
+
+            <FrameLayout
+                android:id="@+id/pauseIconContainer"
+                android:layout_width="38dp"
+                android:layout_height="38dp" />
+
+            <TextView
+                android:id="@+id/tvTapToStart"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:text="Tap to drive"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:id="@+id/scoreContainer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/tvScore"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Score: 0"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvBestScore"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Best: 0"
+                    android:textColor="#A0A0A5"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
+    </RelativeLayout>
+
+    <!-- Rounded Pause & Settings Overlay -->
+    <RelativeLayout
+        android:id="@+id/pauseOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#99000000"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone">
+
+        <ScrollView
+            android:layout_width="340dp"
+            android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/pauseCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_horizontal"
+                android:orientation="vertical"
+                android:padding="22dp">
+
+                <TextView
+                    android:id="@+id/tvPauseTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    android:text="DRIVE ON PAUSED"
+                    android:textColor="#FFFFFF"
+                    android:textSize="20sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/btnResume"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginBottom="8dp"
+                    android:text="Resume Drive"
+                    android:textAllCaps="false"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/btnToggleSpeed"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:layout_marginBottom="8dp"
+                    android:text="Handling: Drift"
+                    android:textAllCaps="false" />
+
+                <Button
+                    android:id="@+id/btnToggleVibration"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:layout_marginBottom="8dp"
+                    android:text="Vibration: ON"
+                    android:textAllCaps="false" />
+
+                <Button
+                    android:id="@+id/btnToggleMusic"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:layout_marginBottom="8dp"
+                    android:text="Sound: ON"
+                    android:textAllCaps="false" />
+
+                <Button
+                    android:id="@+id/btnResetCar"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:layout_marginBottom="8dp"
+                    android:text="Respawn / New City"
+                    android:textAllCaps="false" />
+
+                <Button
+                    android:id="@+id/btnQuitFromPause"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:text="Quit"
+                    android:textAllCaps="false" />
+            </LinearLayout>
+        </ScrollView>
+    </RelativeLayout>
+</RelativeLayout>

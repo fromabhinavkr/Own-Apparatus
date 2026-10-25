@@ -132,6 +132,7 @@ public class MainApplication extends Application {
 
     private boolean isExemptedActivity(Activity activity) {
         return activity instanceof ThriveActivity ||
+                activity instanceof DriveOnActivity ||
                 activity instanceof GlobeGameActivity ||
                 activity instanceof GamesGalleryActivity ||
                 activity instanceof ToolsGalleryActivity ||

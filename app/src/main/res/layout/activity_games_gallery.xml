@@ -213,7 +213,6 @@
                     android:scaleType="fitCenter"
                     android:src="@drawable/myplanet_preview" />
 
-                <!-- Horizontal layout for the Title and the Question Mark Icon -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -229,7 +228,6 @@
                         android:textSize="16sp"
                         android:textStyle="bold" />
 
-                    <!-- The interactive "?" icon -->
                     <TextView
                         android:id="@+id/btnHelpMyPlanet"
                         android:layout_width="22dp"
@@ -246,6 +244,7 @@
 
             <!-- Thrive Game Card -->
             <LinearLayout
+                android:id="@+id/cardThrive"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_columnWeight="1"
@@ -256,6 +255,7 @@
                 android:elevation="2dp">
 
                 <ImageView
+                    android:id="@+id/imgThrive"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:adjustViewBounds="true"
@@ -264,9 +264,42 @@
                     android:src="@drawable/breakout_preview" />
 
                 <TextView
+                    android:id="@+id/textThrive"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Play Rag Thrive"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:gravity="center"
+                    android:paddingBottom="16dp" />
+            </LinearLayout>
+
+            <!-- DriveOn Car Game Card -->
+            <LinearLayout
+                android:id="@+id/cardDriveOn"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:orientation="vertical"
+                android:background="@drawable/bg_gallery_card"
+                android:clipToOutline="true"
+                android:layout_margin="8dp"
+                android:elevation="2dp">
+
+                <ImageView
+                    android:id="@+id/imgDriveOn"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:adjustViewBounds="true"
+                    android:padding="16dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/driveonicon" />
+
+                <TextView
+                    android:id="@+id/textDriveOn"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Play DriveOn"
                     android:textSize="16sp"
                     android:textStyle="bold"
                     android:gravity="center"
