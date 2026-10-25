@@ -97,7 +97,7 @@ public class StickerContentProvider extends ContentProvider {
             for (int i = 1; i <= staticCount; i++) {
                 String packId = "ownpack_" + deviceId + "_" + i;
                 File dir = new File(ctx.getFilesDir(), "stickers/" + packId);
-                File[] files = getValidStickerFiles(dir);
+                File[] files = getValidStickerFiles(dir, false);
                 if (files != null && files.length >= 3) {
                     addPackRowToCursor(cursor, packId);
                 }
@@ -105,7 +105,7 @@ public class StickerContentProvider extends ContentProvider {
             for (int i = 1; i <= animCount; i++) {
                 String packId = "ownanim_" + deviceId + "_" + i;
                 File dir = new File(ctx.getFilesDir(), "stickers/" + packId);
-                File[] files = getValidStickerFiles(dir);
+                File[] files = getValidStickerFiles(dir, true);
                 if (files != null && files.length >= 3) {
                     addPackRowToCursor(cursor, packId);
                 }
@@ -173,7 +173,7 @@ public class StickerContentProvider extends ContentProvider {
     }
 
     private boolean containsAnimatedWebp(File dir) {
-        File[] files = getValidStickerFiles(dir);
+        File[] files = getValidStickerFiles(dir, true);
         if (files != null && files.length > 0) {
             return isWebpFileAnimated(files[0]);
         }
@@ -193,22 +193,26 @@ public class StickerContentProvider extends ContentProvider {
         return false;
     }
 
-    private File[] getValidStickerFiles(File dir) {
+    private File[] getValidStickerFiles(File dir, boolean isAnim) {
         if (dir == null || !dir.exists()) return null;
-        return dir.listFiles((d, name) ->
-                name.endsWith(".webp") &&
-                        !name.contains("_tmp") &&
-                        !name.contains("_thumb") &&
-                        new File(d, name).length() > 100
-        );
+        long maxBytes = isAnim ? 500000L : 100000L;
+        return dir.listFiles((d, name) -> {
+            if (!name.endsWith(".webp") || name.contains("_tmp") || name.contains("_thumb")) {
+                return false;
+            }
+            long len = new File(d, name).length();
+            return len > 100 && len <= maxBytes;
+        });
     }
 
     private Cursor getStickersForPack(String packId) {
         MatrixCursor cursor = new MatrixCursor(STICKER_COLUMNS);
         Context context = getContext();
         if (context != null) {
+            SharedPreferences prefs = context.getSharedPreferences(SnakeWidget.PREFS_NAME, Context.MODE_PRIVATE);
+            boolean isAnim = packId.startsWith("ownanim_") || prefs.getBoolean("is_animated_" + packId, false);
             File dir = new File(context.getFilesDir(), "stickers/" + packId);
-            File[] files = getValidStickerFiles(dir);
+            File[] files = getValidStickerFiles(dir, isAnim);
             if (files != null) {
                 Arrays.sort(files, (f1, f2) -> {
                     try {
@@ -219,7 +223,6 @@ public class StickerContentProvider extends ContentProvider {
                         return f1.getName().compareTo(f2.getName());
                     }
                 });
-                // Uses Unicode escape instead of literal emoji character for WhatsApp validator compliance
                 String defaultEmojiCode = "\uD83D\uDE00";
                 for (File file : files) {
                     cursor.addRow(new Object[]{file.getName(), defaultEmojiCode, ""});
@@ -241,7 +244,7 @@ public class StickerContentProvider extends ContentProvider {
             File dir = new File(context.getFilesDir(), "stickers/" + packId);
             File file = new File(dir, fileName);
 
-            if (fileName.equals("tray.png") && (!file.exists() || file.length() == 0 || file.length() > 49000)) {
+            if (fileName.equals("tray.png") && (!file.exists() || file.length() < 100 || file.length() > 49000)) {
                 generateFallbackTrayIcon(dir, file);
             }
 
@@ -257,7 +260,8 @@ public class StickerContentProvider extends ContentProvider {
 
     private void generateFallbackTrayIcon(File dir, File trayFile) {
         try {
-            File[] files = getValidStickerFiles(dir);
+            File[] files = dir.listFiles((d, name) ->
+                    name.endsWith(".webp") && !name.contains("_tmp") && !name.contains("_thumb"));
             if (files != null && files.length > 0) {
                 Arrays.sort(files, (f1, f2) -> {
                     try {
@@ -276,7 +280,7 @@ public class StickerContentProvider extends ContentProvider {
                 if (src != null) {
                     Bitmap tray = Bitmap.createScaledBitmap(src, 96, 96, true);
                     try (FileOutputStream out = new FileOutputStream(trayFile)) {
-                        tray.compress(Bitmap.CompressFormat.PNG, 70, out);
+                        tray.compress(Bitmap.CompressFormat.PNG, 80, out);
                     }
                     if (tray != src) tray.recycle();
                     src.recycle();

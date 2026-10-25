@@ -1261,9 +1261,9 @@ public class StickerMakerActivity extends AppCompatActivity {
         final int[] smoothLevelProgress = {0};
 
         long clipDurationMs = Math.max(400L, Math.min(6000L, trimEndMs - trimStartMs));
-        final int targetFps = (clipDurationMs <= 3500L) ? 15 : 12;
+        final int targetFps = (clipDurationMs <= 2500L) ? 12 : (clipDurationMs <= 4500L ? 10 : 8);
         final int frameDelayMs = 1000 / targetFps;
-        final int totalFramesToExtract = Math.max(6, Math.min(72, (int) (clipDurationMs / frameDelayMs)));
+        final int totalFramesToExtract = Math.max(6, Math.min(48, (int) (clipDurationMs / frameDelayMs)));
 
         final List<Bitmap> extractedFrames = new ArrayList<>();
         final AtomicBoolean extractionFinished = new AtomicBoolean(false);
@@ -1741,39 +1741,22 @@ public class StickerMakerActivity extends AppCompatActivity {
             MediaMetadataRetriever retriever = new MediaMetadataRetriever();
             try {
                 retriever.setDataSource(this, videoUri);
-                String wStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH);
-                String hStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT);
-                String rotStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION);
-                int vw = (wStr != null) ? Integer.parseInt(wStr) : 512;
-                int vh = (hStr != null) ? Integer.parseInt(hStr) : 512;
-                int rot = (rotStr != null) ? Integer.parseInt(rotStr) : 0;
-                if (rot == 90 || rot == 270) {
-                    int tmp = vw;
-                    vw = vh;
-                    vh = tmp;
-                }
-                float scale = 512f / Math.max(1, Math.max(vw, vh));
-                int dstW = Math.max(64, Math.round(vw * scale));
-                int dstH = Math.max(64, Math.round(vh * scale));
-
                 for (int i = 0; i < totalFramesToExtract; i++) {
                     if (cancelStudio.get()) break;
                     long timeUs = (trimStartMs + (long) i * frameDelayMs) * 1000L;
-                    Bitmap frameBmp = null;
-
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-                        frameBmp = retriever.getScaledFrameAtTime(
-                                timeUs, MediaMetadataRetriever.OPTION_CLOSEST, dstW, dstH);
+                    Bitmap raw = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST);
+                    if (raw == null) {
+                        raw = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
                     }
-                    if (frameBmp == null) {
-                        Bitmap raw = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST);
-                        if (raw != null) {
-                            frameBmp = Bitmap.createScaledBitmap(raw, dstW, dstH, true);
-                            if (frameBmp != raw) raw.recycle();
-                        }
-                    }
+                    if (raw != null) {
+                        int rw = raw.getWidth();
+                        int rh = raw.getHeight();
+                        float scale = 512f / Math.max(1, Math.max(rw, rh));
+                        int dstW = Math.max(64, Math.round(rw * scale));
+                        int dstH = Math.max(64, Math.round(rh * scale));
+                        Bitmap frameBmp = Bitmap.createScaledBitmap(raw, dstW, dstH, true);
+                        if (frameBmp != raw) raw.recycle();
 
-                    if (frameBmp != null) {
                         synchronized (extractedFrames) {
                             extractedFrames.add(frameBmp);
                             if (extractedFrames.size() == 1) {
@@ -1858,54 +1841,45 @@ public class StickerMakerActivity extends AppCompatActivity {
                     File stickerFile = new File(dir, nextId + ".webp");
                     File thumbFile = new File(dir, nextId + "_thumb.png");
 
-                    Bitmap firstRendered = null;
-                    List<byte[]> framePayloads = new ArrayList<>(framesSnapshot.size());
-                    boolean[] hasAlphaFlag = new boolean[]{false};
-
-                    // Stay strictly below WhatsApp's 500 KB (512,000 bytes) animated WebP limit
-                    int totalByteBudget = 475 * 1024;
-                    int perFrameBudget = totalByteBudget / Math.max(1, framesSnapshot.size());
-
+                    List<Bitmap> renderedFrames = new ArrayList<>(framesSnapshot.size());
                     for (int i = 0; i < framesSnapshot.size(); i++) {
-                        Bitmap srcFrame = framesSnapshot.get(i);
-                        Bitmap rendered = applyMatrixToSticker(srcFrame, userMatrix, boxW, boxH, cMode, cRadius, sLevel);
-                        if (i == 0) {
-                            firstRendered = rendered.copy(Bitmap.Config.ARGB_8888, false);
-                        }
-
-                        byte[] compressedSingle = compressFrameWithinBudget(rendered, perFrameBudget);
-                        rendered.recycle();
-
-                        byte[] payload = extractWebpFramePayload(compressedSingle, hasAlphaFlag);
-                        framePayloads.add(payload);
-
-                        final int compProg = (int) (((i + 1) * 100f) / framesSnapshot.size());
+                        Bitmap rendered = applyMatrixToSticker(
+                                framesSnapshot.get(i), userMatrix, boxW, boxH, cMode, cRadius, sLevel);
+                        renderedFrames.add(rendered);
+                        final int compProg = (int) (((i + 1) * 65f) / framesSnapshot.size());
                         runOnUiThread(() -> {
                             pb.setProgress(compProg);
-                            btnBuild.setText("COMPILING " + compProg + "%");
+                            btnBuild.setText("RENDERING " + compProg + "%");
                         });
                     }
 
-                    byte[] animatedWebpBytes = buildAnimatedWebpContainer(framePayloads, frameDelayMs, hasAlphaFlag[0]);
+                    byte[] animatedWebpBytes = encodeGuaranteedUnder500KB(
+                            renderedFrames, frameDelayMs, cMode, cRadius, sLevel, pb, btnBuild);
+
                     try (FileOutputStream outSticker = new FileOutputStream(tmpFile)) {
                         outSticker.write(animatedWebpBytes);
                     }
 
-                    if (tmpFile.exists() && tmpFile.length() > 100) {
+                    if (tmpFile.exists() && tmpFile.length() > 100 && tmpFile.length() <= 500000) {
                         if (stickerFile.exists()) stickerFile.delete();
                         tmpFile.renameTo(stickerFile);
                     } else {
-                        throw new Exception("Animated WebP write failed");
+                        throw new Exception("Animated WebP exceeded 500KB limit");
                     }
 
-                    if (firstRendered != null) {
+                    if (!renderedFrames.isEmpty()) {
+                        Bitmap firstRendered = renderedFrames.get(0);
                         try (FileOutputStream outThumb = new FileOutputStream(thumbFile)) {
                             Bitmap thumb = Bitmap.createScaledBitmap(firstRendered, 256, 256, true);
-                            thumb.compress(Bitmap.CompressFormat.PNG, 90, outThumb);
+                            thumb.compress(Bitmap.CompressFormat.PNG, 85, outThumb);
                             if (thumb != firstRendered) thumb.recycle();
                         }
-                        firstRendered.recycle();
                     }
+
+                    for (Bitmap b : renderedFrames) {
+                        if (b != null && !b.isRecycled()) b.recycle();
+                    }
+                    renderedFrames.clear();
 
                     synchronized (extractedFrames) {
                         for (Bitmap b : extractedFrames) {
@@ -1921,7 +1895,7 @@ public class StickerMakerActivity extends AppCompatActivity {
                         isCompiling.set(false);
                         dialog.dismiss();
                         loadExistingStickers();
-                        Toast.makeText(this, "Animated Sticker Added!", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, "Animated Sticker Added (" + (animatedWebpBytes.length / 1024) + " KB)!", Toast.LENGTH_SHORT).show();
                     });
                 } catch (Exception e) {
                     synchronized (extractedFrames) {
@@ -1942,6 +1916,100 @@ public class StickerMakerActivity extends AppCompatActivity {
         dialog.show();
     }
 
+    private byte[] encodeGuaranteedUnder500KB(
+            List<Bitmap> frames, int baseDelayMs, int cropMode, float radiusProgress, int smoothLevel,
+            ProgressBar pb, Button btnBuild) throws IOException {
+
+        final int maxAllowedBytes = 470000; // Safe margin below WhatsApp's 500,000 byte limit
+        // Try full 512px first; if zoomed high-detail video + smoothing is still heavy, downscale internal texture
+        int[][] attempts = new int[][]{
+                {1, 512, 55, 38, 24, 14},
+                {1, 384, 48, 32, 20, 10},
+                {2, 384, 52, 36, 22, 12},
+                {2, 288, 40, 25, 14, 6}
+        };
+
+        byte[] lastResult = null;
+        for (int a = 0; a < attempts.length; a++) {
+            int step = attempts[a][0];
+            int internalRes = attempts[a][1];
+            int[] qualities = new int[]{attempts[a][2], attempts[a][3], attempts[a][4], attempts[a][5]};
+
+            List<Bitmap> subFrames = new ArrayList<>();
+            for (int i = 0; i < frames.size(); i += step) {
+                subFrames.add(frames.get(i));
+            }
+            if (subFrames.size() < 4 && frames.size() >= 4) {
+                subFrames = frames.subList(0, 4);
+            }
+
+            int effectiveDelayMs = baseDelayMs * step;
+            int perFrameBudget = (maxAllowedBytes - 2048) / Math.max(1, subFrames.size());
+            List<byte[]> payloads = new ArrayList<>(subFrames.size());
+            boolean[] hasAlpha = new boolean[]{false};
+
+            for (int i = 0; i < subFrames.size(); i++) {
+                Bitmap frameToEncode = subFrames.get(i);
+                Bitmap tempScaled = null;
+                if (internalRes < 512) {
+                    // Downscale and upscale RGB detail while re-applying clean mask so 512x512 size & alpha stay exact
+                    Bitmap down = Bitmap.createScaledBitmap(frameToEncode, internalRes, internalRes, true);
+                    tempScaled = Bitmap.createScaledBitmap(down, 512, 512, true);
+                    down.recycle();
+                    reapplyAlphaFromSource(frameToEncode, tempScaled);
+                    frameToEncode = tempScaled;
+                }
+
+                byte[] compressed = compressFrameWithQualities(frameToEncode, perFrameBudget, qualities);
+                if (tempScaled != null) tempScaled.recycle();
+
+                payloads.add(extractWebpFramePayload(compressed, hasAlpha));
+            }
+
+            lastResult = buildAnimatedWebpContainer(payloads, effectiveDelayMs, hasAlpha[0]);
+            if (lastResult.length <= maxAllowedBytes) {
+                runOnUiThread(() -> {
+                    pb.setProgress(100);
+                    btnBuild.setText("DONE 100%");
+                });
+                return lastResult;
+            }
+        }
+        return lastResult;
+    }
+
+    private void reapplyAlphaFromSource(Bitmap alphaSrc, Bitmap target) {
+        int[] srcPx = new int[512 * 512];
+        int[] dstPx = new int[512 * 512];
+        alphaSrc.getPixels(srcPx, 0, 512, 0, 0, 512, 512);
+        target.getPixels(dstPx, 0, 512, 0, 0, 512, 512);
+        for (int i = 0; i < srcPx.length; i++) {
+            int a = srcPx[i] & 0xFF000000;
+            if (a == 0) {
+                dstPx[i] = 0;
+            } else {
+                dstPx[i] = a | (dstPx[i] & 0x00FFFFFF);
+            }
+        }
+        target.setPixels(dstPx, 0, 512, 0, 0, 512, 512);
+    }
+
+    private byte[] compressFrameWithQualities(Bitmap bmp, int byteBudget, int[] qualities) {
+        Bitmap.CompressFormat fmt = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
+                ? Bitmap.CompressFormat.WEBP_LOSSY
+                : Bitmap.CompressFormat.WEBP;
+        byte[] result = null;
+        for (int q : qualities) {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            bmp.compress(fmt, q, baos);
+            result = baos.toByteArray();
+            if (result.length <= byteBudget) {
+                break;
+            }
+        }
+        return result;
+    }
+
     private byte[] compressFrameWithinBudget(Bitmap bmp, int byteBudget) {
         Bitmap.CompressFormat fmt = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
                 ? Bitmap.CompressFormat.WEBP_LOSSY
@@ -1959,6 +2027,7 @@ public class StickerMakerActivity extends AppCompatActivity {
         return result;
     }
 
+
     /**
      * Parses a single-frame RIFF WEBP byte array, skipping any nested VP8X/ICCP/EXIF chunks
      * and extracting only ALPH, VP8 , or VP8L bitstream chunks with proper 2-byte RIFF padding.
@@ -1968,7 +2037,7 @@ public class StickerMakerActivity extends AppCompatActivity {
             throw new IOException("Invalid single WebP frame");
         }
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        int offset = 12; // Skip "RIFF" + size + "WEBP"
+        int offset = 12;
         while (offset + 8 <= webpBytes.length) {
             String fourCC = new String(webpBytes, offset, 4, StandardCharsets.US_ASCII);
             int chunkSize = (webpBytes[offset + 4] & 0xFF)
@@ -1992,29 +2061,23 @@ public class StickerMakerActivity extends AppCompatActivity {
         return out.toByteArray();
     }
 
-    /**
-     * Muxes extracted frame payloads into a compliant extended RIFF WEBP Animated container
-     * (VP8X + ANIM + ANMF chunks) for WhatsApp (512x512, disposal=1, no-blend=1).
-     */
     private byte[] buildAnimatedWebpContainer(List<byte[]> framePayloads, int frameDelayMs, boolean hasAlpha) throws IOException {
-        int safeDelayMs = Math.max(8, frameDelayMs);
+        int safeDelayMs = Math.max(16, frameDelayMs);
         ByteArrayOutputStream anmfStream = new ByteArrayOutputStream();
+        // Use 0x03 (Do not blend + Dispose to background) when alpha is present, or 0x02 (Do not blend) when opaque
+        int anmfFlags = hasAlpha ? 0x03 : 0x02;
 
         for (byte[] payload : framePayloads) {
             int anmfPayloadSize = 16 + payload.length;
             anmfStream.write("ANMF".getBytes(StandardCharsets.US_ASCII));
             writeInt32LE(anmfStream, anmfPayloadSize);
 
-            // Frame X = 0, Frame Y = 0
             writeInt24LE(anmfStream, 0);
             writeInt24LE(anmfStream, 0);
-            // Width - 1 = 511, Height - 1 = 511
             writeInt24LE(anmfStream, 511);
             writeInt24LE(anmfStream, 511);
-            // Frame Duration in ms
             writeInt24LE(anmfStream, safeDelayMs);
-            // Flags: Bit 1 (0x02 = Do not blend) | Bit 0 (0x01 = Dispose to background) = 0x03
-            anmfStream.write(0x03);
+            anmfStream.write(anmfFlags);
 
             anmfStream.write(payload);
             if ((anmfPayloadSize & 1) == 1) {
@@ -2023,7 +2086,6 @@ public class StickerMakerActivity extends AppCompatActivity {
         }
 
         byte[] allAnmfBytes = anmfStream.toByteArray();
-        // RIFF payload = "WEBP" (4) + VP8X chunk (18) + ANIM chunk (14) + allAnmfBytes = 36 + allAnmfBytes.length
         int riffPayloadSize = 36 + allAnmfBytes.length;
 
         ByteArrayOutputStream fileOut = new ByteArrayOutputStream(riffPayloadSize + 8);
@@ -2034,17 +2096,17 @@ public class StickerMakerActivity extends AppCompatActivity {
         // VP8X Chunk (18 bytes)
         fileOut.write("VP8X".getBytes(StandardCharsets.US_ASCII));
         writeInt32LE(fileOut, 10);
-        int vp8xFlags = 0x02 | (hasAlpha ? 0x10 : 0x00); // Bit 1 = Animation, Bit 4 = Alpha
+        int vp8xFlags = 0x02 | (hasAlpha ? 0x10 : 0x00);
         fileOut.write(vp8xFlags);
-        writeInt24LE(fileOut, 0); // Reserved
-        writeInt24LE(fileOut, 511); // Canvas Width - 1
-        writeInt24LE(fileOut, 511); // Canvas Height - 1
+        writeInt24LE(fileOut, 0);
+        writeInt24LE(fileOut, 511);
+        writeInt24LE(fileOut, 511);
 
         // ANIM Chunk (14 bytes)
         fileOut.write("ANIM".getBytes(StandardCharsets.US_ASCII));
         writeInt32LE(fileOut, 6);
-        writeInt32LE(fileOut, 0x00000000); // Transparent BGRA background
-        fileOut.write(0); // Loop count = 0 (infinite)
+        writeInt32LE(fileOut, 0x00000000);
+        fileOut.write(0);
         fileOut.write(0);
 
         fileOut.write(allAnmfBytes);
@@ -2551,8 +2613,9 @@ public class StickerMakerActivity extends AppCompatActivity {
                     Bitmap cropped = applyMatrixToSticker(
                             orig, userMatrix, boxW, boxH, currentCropMode[0], cornerRadiusProgress[0], smoothLevelProgress[0]);
 
+                    byte[] staticWebpBytes = compressFrameWithQualities(cropped, 95000, new int[]{80, 65, 50, 35, 20});
                     FileOutputStream outSticker = new FileOutputStream(tmpFile);
-                    cropped.compress(webpFormat, 75, outSticker);
+                    outSticker.write(staticWebpBytes);
                     outSticker.close();
                     if (tmpFile.exists() && tmpFile.length() > 100) {
                         tmpFile.renameTo(stickerFile);
@@ -2671,17 +2734,10 @@ public class StickerMakerActivity extends AppCompatActivity {
         float scale = 512f / maxDim;
         float dx = (512f - (boxW * scale)) / 2f;
         float dy = (512f - (boxH * scale)) / 2f;
-
-        canvas.save();
-        canvas.translate(dx, dy);
-        canvas.scale(scale, scale);
-        canvas.drawBitmap(orig, userMatrix, new Paint(Paint.FILTER_BITMAP_FLAG));
-        canvas.restore();
-
-        Path clipPath = new Path();
         float fw = boxW * scale;
         float fh = boxH * scale;
 
+        Path clipPath = new Path();
         if (cropMode == 2 || cropMode == 3) {
             clipPath.addOval(new RectF(dx, dy, dx + fw, dy + fh), Path.Direction.CW);
         } else {
@@ -2690,33 +2746,59 @@ public class StickerMakerActivity extends AppCompatActivity {
             clipPath.addRoundRect(new RectF(dx, dy, dx + fw, dy + fh), rx, rx, Path.Direction.CW);
         }
 
-        Bitmap maskBmp = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888);
-        Canvas maskCanvas = new Canvas(maskBmp);
-        Paint maskPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        maskPaint.setColor(Color.BLACK);
+        canvas.save();
+        canvas.clipPath(clipPath);
+        canvas.translate(dx, dy);
+        canvas.scale(scale, scale);
+        canvas.drawBitmap(orig, userMatrix, new Paint(Paint.FILTER_BITMAP_FLAG));
+        canvas.restore();
 
         if (smoothLevel > 0) {
-            float blurRadius = 0f;
-            if (smoothLevel == 1) blurRadius = 15f;
-            else if (smoothLevel == 2) blurRadius = 35f;
-            else if (smoothLevel == 3) blurRadius = 60f;
-            else if (smoothLevel == 4) blurRadius = 100f;
+            // Render blur mask at 128x128 (4x4 blocks) and quantize alpha steps so lossless ALPH chunk stays tiny
+            Bitmap smallMask = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888);
+            Canvas smallCanvas = new Canvas(smallMask);
+            Paint maskPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            maskPaint.setColor(Color.BLACK);
+
+            float blurRadius = 4f;
+            if (smoothLevel == 1) blurRadius = 4f;
+            else if (smoothLevel == 2) blurRadius = 9f;
+            else if (smoothLevel == 3) blurRadius = 15f;
+            else if (smoothLevel == 4) blurRadius = 24f;
 
             maskPaint.setMaskFilter(new BlurMaskFilter(blurRadius, BlurMaskFilter.Blur.NORMAL));
 
-            maskCanvas.save();
-            maskCanvas.clipPath(clipPath);
-            maskCanvas.drawPath(clipPath, maskPaint);
-            maskCanvas.restore();
-        } else {
-            maskCanvas.drawPath(clipPath, maskPaint);
+            Path smallPath = new Path();
+            Matrix scaleDown = new Matrix();
+            scaleDown.setScale(0.25f, 0.25f);
+            clipPath.transform(scaleDown, smallPath);
+
+            smallCanvas.save();
+            smallCanvas.clipPath(smallPath);
+            smallCanvas.drawPath(smallPath, maskPaint);
+            smallCanvas.restore();
+
+            int[] mPixels = new int[128 * 128];
+            smallMask.getPixels(mPixels, 0, 128, 0, 0, 128, 128);
+            for (int i = 0; i < mPixels.length; i++) {
+                int a = (mPixels[i] >>> 24) & 0xFF;
+                if (a < 16) a = 0;
+                else if (a > 240) a = 255;
+                else a = (a >> 5) * 36;
+                mPixels[i] = (a << 24);
+            }
+            smallMask.setPixels(mPixels, 0, 128, 0, 0, 128, 128);
+
+            // Upscale with nearest-neighbor (filter=false) to preserve 4x4 horizontal run-lengths for WebP LZ77
+            Bitmap maskBmp = Bitmap.createScaledBitmap(smallMask, 512, 512, false);
+            smallMask.recycle();
+
+            Paint dstInPaint = new Paint();
+            dstInPaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_IN));
+            canvas.drawBitmap(maskBmp, 0, 0, dstInPaint);
+            maskBmp.recycle();
         }
 
-        Paint dstInPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        dstInPaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_IN));
-        canvas.drawBitmap(maskBmp, 0, 0, dstInPaint);
-
-        maskBmp.recycle();
         return finalBmp;
     }
 
