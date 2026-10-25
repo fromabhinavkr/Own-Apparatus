@@ -28,6 +28,7 @@
 * **Breakout:** The paddle-and-ball brick breaker.
 * **My Planet:** Save the planet from alien attacks.
 * **Maze Ball:** Maze adventures with red ball
+* **Rag Thrive:** Shooting Adventure.
 
 ### Tool Collection
 * **WhatsApp Sticker Maker:** Custom sticker generator with full WhatsApp integration.
