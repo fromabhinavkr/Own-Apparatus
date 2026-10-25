@@ -4,16 +4,79 @@
     android:id="@+id/stickerMakerRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:paddingTop="20dp"
+    android:paddingTop="16dp"
     android:paddingBottom="20dp"
     tools:ignore="HardcodedText,Autofill">
+
+    <!-- Pack Mode Switcher (Static vs Animated Packs) -->
+    <LinearLayout
+        android:id="@+id/packModeContainer"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:layout_alignParentTop="true"
+        android:layout_marginHorizontal="20dp"
+        android:layout_marginBottom="10dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="4dp">
+
+        <LinearLayout
+            android:id="@+id/tabStaticPacks"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <FrameLayout
+                android:id="@+id/iconStaticMode"
+                android:layout_width="18dp"
+                android:layout_height="18dp" />
+
+            <TextView
+                android:id="@+id/tvStaticMode"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="Static Packs"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/tabAnimatedPacks"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <FrameLayout
+                android:id="@+id/iconAnimMode"
+                android:layout_width="18dp"
+                android:layout_height="18dp" />
+
+            <TextView
+                android:id="@+id/tvAnimMode"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="Animated Packs"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+    </LinearLayout>
 
     <!-- Top Horizontal Pack Scroller -->
     <HorizontalScrollView
         android:id="@+id/packScrollView"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_alignParentTop="true"
+        android:layout_below="@id/packModeContainer"
         android:clipToPadding="false"
         android:paddingHorizontal="20dp"
         android:scrollbars="none">
@@ -28,11 +91,12 @@
 
     <!-- Scrollable Main Content -->
     <ScrollView
+        android:id="@+id/mainScrollView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:layout_above="@id/bottomBar"
         android:layout_below="@id/packScrollView"
-        android:layout_marginVertical="16dp"
+        android:layout_marginVertical="14dp"
         android:clipToPadding="false"
         android:paddingHorizontal="20dp"
         android:scrollbars="none">
@@ -45,7 +109,7 @@
             android:orientation="vertical"
             android:padding="20dp">
 
-            <!-- Title and Trash Menu Row -->
+            <!-- Title, Pack Type Badge, and Trash Menu Row -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -64,7 +128,18 @@
                     android:maxLines="1"
                     android:singleLine="true"
                     android:textColorHint="#888888"
-                    android:textSize="26sp"
+                    android:textSize="24sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvPackTypeBadge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:paddingHorizontal="10dp"
+                    android:paddingVertical="4dp"
+                    android:text="STATIC"
+                    android:textSize="10sp"
                     android:textStyle="bold" />
 
                 <!-- Trash Options Button -->
