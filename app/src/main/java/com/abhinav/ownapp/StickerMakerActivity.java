@@ -107,13 +107,389 @@ public class StickerMakerActivity extends AppCompatActivity {
                     Uri uri = result.getData().getData();
                     if (uri != null) {
                         if (isAnimatedMode) {
-                            showVideoTrimStudio(uri);
+                            if (isGifFile(uri)) {
+                                showGifTrimStudio(uri); // Route GIF to GIF trimmer
+                            } else {
+                                showVideoTrimStudio(uri); // Route video to video trimmer
+                            }
                         } else {
                             showVisualCropStudio(uri);
                         }
                     }
                 }
             });
+
+
+    private byte[] readBytesFromUri(Uri uri) {
+        try (InputStream is = getContentResolver().openInputStream(uri)) {
+            if (is == null) return null;
+            ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+            byte[] chunk = new byte[16384];
+            int n;
+            while ((n = is.read(chunk)) != -1) {
+                buffer.write(chunk, 0, n);
+            }
+            return buffer.toByteArray();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Parses the GIF89a binary Graphic Control Extension (0x21 0xF9) blocks
+     * to extract the exact millisecond delay of every single frame in the GIF.
+     */
+    private List<Integer> parseGifDelays(byte[] data) {
+        List<Integer> delays = new ArrayList<>();
+        if (data == null || data.length < 13) return delays;
+        if (data[0] != 'G' || data[1] != 'I' || data[2] != 'F') return delays;
+
+        int pos = 6;
+        int packed = data[pos + 4] & 0xFF;
+        pos += 7;
+        if ((packed & 0x80) != 0) {
+            pos += 3 * (1 << ((packed & 0x07) + 1));
+        }
+
+        int currentDelayMs = 80;
+        int n = data.length;
+        while (pos < n) {
+            int blockId = data[pos++] & 0xFF;
+            if (blockId == 0x21) { // Extension block
+                if (pos >= n) break;
+                int extLabel = data[pos++] & 0xFF;
+                if (extLabel == 0xF9) { // Graphic Control Extension
+                    while (pos < n) {
+                        int subLen = data[pos++] & 0xFF;
+                        if (subLen == 0) break;
+                        if (subLen >= 4 && pos + subLen <= n) {
+                            int delayCs = (data[pos + 1] & 0xFF) | ((data[pos + 2] & 0xFF) << 8);
+                            int dMs = delayCs * 10;
+                            if (dMs < 20) dMs = 80; // Standard browser/Android fallback for <20ms GIF delays
+                            currentDelayMs = dMs;
+                        }
+                        pos += subLen;
+                    }
+                } else {
+                    while (pos < n) {
+                        int subLen = data[pos++] & 0xFF;
+                        if (subLen == 0) break;
+                        pos += subLen;
+                    }
+                }
+            } else if (blockId == 0x2C) { // Image Descriptor (Frame)
+                if (pos + 9 > n) break;
+                int imgPacked = data[pos + 8] & 0xFF;
+                pos += 9;
+                if ((imgPacked & 0x80) != 0) {
+                    pos += 3 * (1 << ((imgPacked & 0x07) + 1));
+                }
+                if (pos >= n) break;
+                pos++; // Skip LZW Minimum Code Size
+                while (pos < n) {
+                    int subLen = data[pos++] & 0xFF;
+                    if (subLen == 0) break;
+                    pos += subLen;
+                }
+                delays.add(currentDelayMs);
+                currentDelayMs = 80;
+            } else if (blockId == 0x3B) { // Trailer
+                break;
+            } else {
+                break;
+            }
+        }
+        return delays;
+    }
+
+    private void showGifTrimStudio(Uri gifUri) {
+        final byte[] gifBytes = readBytesFromUri(gifUri);
+        if (gifBytes == null || gifBytes.length < 20) {
+            Toast.makeText(this, "Could not read GIF file.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        List<Integer> frameDelays = parseGifDelays(gifBytes);
+        long sumDurationMs = 0;
+        for (int d : frameDelays) sumDurationMs += d;
+
+        final android.graphics.Movie gifMovie = android.graphics.Movie.decodeByteArray(gifBytes, 0, gifBytes.length);
+        if (sumDurationMs <= 0 && gifMovie != null && gifMovie.duration() > 0) {
+            sumDurationMs = gifMovie.duration();
+        }
+        if (sumDurationMs < 200L) sumDurationMs = 2000L;
+
+        final long totalDurationMs = sumDurationMs;
+        final long maxWindowMs = 6000L;
+        final long minWindowMs = Math.min(300L, totalDurationMs);
+        final long[] trimRangeMs = new long[]{0L, Math.min(totalDurationMs, maxWindowMs)};
+
+        float density = getResources().getDisplayMetrics().density;
+        int p = (int) (22 * density);
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this, R.style.ModernDialogStyle);
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(p, p, p, p);
+
+        GradientDrawable gd = new GradientDrawable();
+        gd.setColor(cardColor);
+        gd.setCornerRadius(60f);
+        gd.setStroke(2, glassBorderColor);
+        layout.setBackground(gd);
+
+        // Header
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER);
+        header.setPadding(0, 0, 0, (int) (14 * density));
+
+        ImageView headerIcon = new ImageView(this);
+        headerIcon.setLayoutParams(new LinearLayout.LayoutParams((int) (24 * density), (int) (24 * density)));
+        headerIcon.setImageResource(R.drawable.ic_scissors);
+        headerIcon.setColorFilter(accentColor, PorterDuff.Mode.SRC_IN);
+        header.addView(headerIcon);
+
+        TextView title = new TextView(this);
+        title.setText(" Step 1: Trim GIF (Max 6s)");
+        title.setTextSize(17f);
+        title.setTypeface(null, Typeface.BOLD);
+        title.setTextColor(textColor);
+        header.addView(title);
+        layout.addView(header);
+
+        // GIF Preview Box
+        int previewBoxSize = (int) (250 * density);
+        FrameLayout playerWrapper = new FrameLayout(this);
+        LinearLayout.LayoutParams pwLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, previewBoxSize);
+        pwLp.gravity = Gravity.CENTER;
+        pwLp.setMargins(0, 0, 0, (int) (14 * density));
+        playerWrapper.setLayoutParams(pwLp);
+
+        GradientDrawable pwGd = new GradientDrawable();
+        pwGd.setColor(Color.parseColor("#101012"));
+        pwGd.setCornerRadius(36f);
+        pwGd.setStroke(2, glassBorderColor);
+        playerWrapper.setBackground(pwGd);
+
+        ImageView gifPreviewIv = new ImageView(this);
+        gifPreviewIv.setLayoutParams(new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER));
+        gifPreviewIv.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        playerWrapper.addView(gifPreviewIv);
+        layout.addView(playerWrapper);
+
+        // Time Readout Row
+        LinearLayout timeRow = new LinearLayout(this);
+        timeRow.setOrientation(LinearLayout.HORIZONTAL);
+        timeRow.setGravity(Gravity.CENTER_VERTICAL);
+        timeRow.setPadding((int) (4 * density), 0, (int) (4 * density), (int) (8 * density));
+
+        TextView tvStart = new TextView(this);
+        tvStart.setTextColor(subTextColor);
+        tvStart.setTextSize(12f);
+        tvStart.setTypeface(null, Typeface.BOLD);
+        tvStart.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView tvDurationBadge = new TextView(this);
+        tvDurationBadge.setTextColor(isDarkTheme ? Color.BLACK : Color.WHITE);
+        tvDurationBadge.setTextSize(12f);
+        tvDurationBadge.setTypeface(null, Typeface.BOLD);
+        tvDurationBadge.setPadding((int) (12 * density), (int) (4 * density), (int) (12 * density), (int) (4 * density));
+        GradientDrawable durGd = new GradientDrawable();
+        durGd.setColor(accentColor);
+        durGd.setCornerRadius(50f);
+        tvDurationBadge.setBackground(durGd);
+
+        TextView tvEnd = new TextView(this);
+        tvEnd.setTextColor(subTextColor);
+        tvEnd.setTextSize(12f);
+        tvEnd.setTypeface(null, Typeface.BOLD);
+        tvEnd.setGravity(Gravity.END);
+        tvEnd.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        timeRow.addView(tvStart);
+        timeRow.addView(tvDurationBadge);
+        timeRow.addView(tvEnd);
+        layout.addView(timeRow);
+
+        Runnable updateTimeLabels = () -> {
+            tvStart.setText(formatMs(trimRangeMs[0]));
+            tvEnd.setText(formatMs(trimRangeMs[1]));
+            float selSec = (trimRangeMs[1] - trimRangeMs[0]) / 1000f;
+            tvDurationBadge.setText(String.format(Locale.US, "%.1fs / 6.0s", selSec));
+        };
+        updateTimeLabels.run();
+
+        // Live scrubbable Bitmap for the GIF Trimmer preview
+        final int mw = (gifMovie != null && gifMovie.width() > 0) ? gifMovie.width() : 512;
+        final int mh = (gifMovie != null && gifMovie.height() > 0) ? gifMovie.height() : 512;
+        final float mScale = 360f / Math.max(1, Math.max(mw, mh));
+        final int cw = Math.max(64, Math.round(mw * mScale));
+        final int ch = Math.max(64, Math.round(mh * mScale));
+        final Bitmap liveGifBmp = Bitmap.createBitmap(cw, ch, Bitmap.Config.ARGB_8888);
+        final Canvas liveGifCanvas = new Canvas(liveGifBmp);
+        final boolean[] isDraggingTrim = new boolean[]{false};
+        final long[] currentPlayheadMs = new long[]{0L};
+
+        final java.util.function.LongConsumer renderGifAtTime = (timeMs) -> {
+            if (gifMovie != null && !liveGifBmp.isRecycled()) {
+                int movieDur = Math.max(1, gifMovie.duration() > 0 ? gifMovie.duration() : (int) totalDurationMs);
+                int relMs = (int) Math.max(0, Math.min(movieDur - 1, (timeMs * movieDur) / totalDurationMs));
+                liveGifBmp.eraseColor(Color.TRANSPARENT);
+                liveGifCanvas.save();
+                liveGifCanvas.scale(mScale, mScale);
+                gifMovie.setTime(relMs);
+                gifMovie.draw(liveGifCanvas, 0, 0);
+                liveGifCanvas.restore();
+                gifPreviewIv.setImageBitmap(liveGifBmp);
+                gifPreviewIv.invalidate();
+            }
+        };
+
+        // Timeline Trimmer View
+        VideoTrimTimelineView timelineView = new VideoTrimTimelineView(
+                this, totalDurationMs, maxWindowMs, minWindowMs, accentColor, panelColor, textColor,
+                (startMs, endMs, seekTargetMs, isDragging) -> {
+                    trimRangeMs[0] = startMs;
+                    trimRangeMs[1] = endMs;
+                    isDraggingTrim[0] = isDragging;
+                    currentPlayheadMs[0] = seekTargetMs;
+                    updateTimeLabels.run();
+                    renderGifAtTime.accept(seekTargetMs);
+                });
+        LinearLayout.LayoutParams tlLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, (int) (68 * density));
+        tlLp.setMargins(0, (int) (4 * density), 0, (int) (18 * density));
+        timelineView.setLayoutParams(tlLp);
+        layout.addView(timelineView);
+
+        // Generate 8 Filmstrip Thumbnails for the GIF Timeline
+        final AtomicBoolean cancelGifThumbs = new AtomicBoolean(false);
+        new Thread(() -> {
+            try {
+                android.graphics.Movie thumbMovie = android.graphics.Movie.decodeByteArray(gifBytes, 0, gifBytes.length);
+                if (thumbMovie != null && thumbMovie.width() > 0 && thumbMovie.height() > 0) {
+                    int mDur = Math.max(1, thumbMovie.duration() > 0 ? thumbMovie.duration() : (int) totalDurationMs);
+                    for (int i = 0; i < 8; i++) {
+                        if (cancelGifThumbs.get()) break;
+                        int tMs = (int) (((i + 0.5f) / 8f) * mDur);
+                        Bitmap tb = Bitmap.createBitmap(120, 120, Bitmap.Config.ARGB_8888);
+                        Canvas tc = new Canvas(tb);
+                        float s = 120f / Math.max(1, Math.max(thumbMovie.width(), thumbMovie.height()));
+                        tc.scale(s, s);
+                        thumbMovie.setTime(tMs);
+                        thumbMovie.draw(tc, 0, 0);
+                        final Bitmap finalTb = tb;
+                        runOnUiThread(() -> timelineView.addThumbnail(finalTb));
+                    }
+                }
+            } catch (Exception ignored) {}
+        }).start();
+
+        // Action Buttons
+        LinearLayout btnRow = new LinearLayout(this);
+        btnRow.setOrientation(LinearLayout.HORIZONTAL);
+
+        Button btnCancel = new Button(this);
+        btnCancel.setText("CANCEL");
+        btnCancel.setTextColor(Color.WHITE);
+        btnCancel.setTypeface(null, Typeface.BOLD);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            btnCancel.setStateListAnimator(null);
+            btnCancel.setElevation(0);
+        }
+        GradientDrawable gdCancel = new GradientDrawable();
+        gdCancel.setColor(Color.parseColor("#FF3B30"));
+        gdCancel.setCornerRadius(100f);
+        btnCancel.setBackgroundTintList(null);
+        btnCancel.setBackground(gdCancel);
+        LinearLayout.LayoutParams lpC = new LinearLayout.LayoutParams(0, (int) (54 * density), 1f);
+        lpC.setMargins(0, 0, (int) (8 * density), 0);
+        btnCancel.setLayoutParams(lpC);
+
+        Button btnNext = new Button(this);
+        btnNext.setText("NEXT: CROP & CURVE");
+        btnNext.setTextColor(isDarkTheme ? Color.BLACK : Color.WHITE);
+        btnNext.setTypeface(null, Typeface.BOLD);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            btnNext.setStateListAnimator(null);
+            btnNext.setElevation(0);
+        }
+        GradientDrawable gdNext = new GradientDrawable();
+        gdNext.setColor(accentColor);
+        gdNext.setCornerRadius(100f);
+        btnNext.setBackgroundTintList(null);
+        btnNext.setBackground(gdNext);
+        LinearLayout.LayoutParams lpN = new LinearLayout.LayoutParams(0, (int) (54 * density), 1.3f);
+        lpN.setMargins((int) (8 * density), 0, 0, 0);
+        btnNext.setLayoutParams(lpN);
+
+        btnRow.addView(btnCancel);
+        btnRow.addView(btnNext);
+        layout.addView(btnRow);
+
+        builder.setView(layout);
+        AlertDialog dialog = builder.create();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+        }
+
+        // Real-time Loop Player inside the GIF Trimmer Preview
+        Handler gifLoopHandler = new Handler(Looper.getMainLooper());
+        final long[] lastTickUptime = new long[]{android.os.SystemClock.uptimeMillis()};
+        Runnable gifLoopRunnable = new Runnable() {
+            @Override
+            public void run() {
+                long now = android.os.SystemClock.uptimeMillis();
+                long dt = now - lastTickUptime[0];
+                lastTickUptime[0] = now;
+                if (!isDraggingTrim[0]) {
+                    currentPlayheadMs[0] += dt;
+                    if (currentPlayheadMs[0] >= trimRangeMs[1] || currentPlayheadMs[0] < trimRangeMs[0]) {
+                        currentPlayheadMs[0] = trimRangeMs[0];
+                    }
+                    timelineView.setPlayheadMs(currentPlayheadMs[0]);
+                    renderGifAtTime.accept(currentPlayheadMs[0]);
+                }
+                gifLoopHandler.postDelayed(this, 33);
+            }
+        };
+        gifLoopHandler.post(gifLoopRunnable);
+
+        dialog.setOnDismissListener(d -> {
+            cancelGifThumbs.set(true);
+            gifLoopHandler.removeCallbacksAndMessages(null);
+            timelineView.recycleThumbnails();
+        });
+
+        btnCancel.setOnClickListener(v -> dialog.dismiss());
+        btnNext.setOnClickListener(v -> {
+            long start = trimRangeMs[0];
+            long end = trimRangeMs[1];
+            if (end - start > 6000L) end = start + 6000L;
+            if (end - start < 200L) end = Math.min(totalDurationMs, start + 300L);
+            dialog.dismiss();
+            showAnimatedCropStudio(gifUri, start, end);
+        });
+
+        dialog.show();
+    }
+
+    private boolean isGifFile(Uri uri) {
+        try {
+            String mime = getContentResolver().getType(uri);
+            if (mime != null && mime.equalsIgnoreCase("image/gif")) {
+                return true;
+            }
+            String path = uri.getPath();
+            if (path != null && path.toLowerCase(Locale.US).endsWith(".gif")) {
+                return true;
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
 
     private final ActivityResultLauncher<Intent> addStickerLauncher = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(), result -> {
@@ -360,7 +736,16 @@ public class StickerMakerActivity extends AppCompatActivity {
             return;
         }
         Intent intent = new Intent(Intent.ACTION_PICK);
-        intent.setType(isAnimatedMode ? "video/*" : "image/*");
+        if (isAnimatedMode) {
+            // Allows selecting both videos and GIFs across all gallery and file manager apps
+            intent.setType("*/*");
+            intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{
+                    "video/*",
+                    "image/gif"
+            });
+        } else {
+            intent.setType("image/*");
+        }
         pickMediaLauncher.launch(intent);
     }
 
@@ -1731,6 +2116,9 @@ public class StickerMakerActivity extends AppCompatActivity {
             dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
         }
 
+        // Dynamic frame delay holder (updated to the GIF's exact native speed when a GIF is loaded)
+        final int[] activeFrameDelayMs = new int[]{frameDelayMs};
+
         // Live Frame Animator Loop inside previewBox
         Handler animHandler = new Handler(Looper.getMainLooper());
         final int[] currentPreviewIdx = {0};
@@ -1748,53 +2136,215 @@ public class StickerMakerActivity extends AppCompatActivity {
                         }
                     }
                 }
-                animHandler.postDelayed(this, frameDelayMs);
+                animHandler.postDelayed(this, activeFrameDelayMs[0]);
             }
         };
 
-        // Background Sequential Frame Extraction (OPTION_CLOSEST for smooth non-stuck motion)
+        // Background Sequential Frame Extraction (Supports both Video and GIF)
         new Thread(() -> {
-            MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-            try {
-                retriever.setDataSource(this, videoUri);
-                for (int i = 0; i < totalFramesToExtract; i++) {
-                    if (cancelStudio.get()) break;
-                    long timeUs = (trimStartMs + (long) i * frameDelayMs) * 1000L;
-                    Bitmap raw = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST);
-                    if (raw == null) {
-                        raw = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
-                    }
-                    if (raw != null) {
-                        int rw = raw.getWidth();
-                        int rh = raw.getHeight();
-                        float scale = 512f / Math.max(1, Math.max(rw, rh));
-                        int dstW = Math.max(64, Math.round(rw * scale));
-                        int dstH = Math.max(64, Math.round(rh * scale));
-                        Bitmap frameBmp = Bitmap.createScaledBitmap(raw, dstW, dstH, true);
-                        if (frameBmp != raw) raw.recycle();
+            boolean isGif = isGifFile(videoUri);
 
-                        synchronized (extractedFrames) {
-                            extractedFrames.add(frameBmp);
-                            if (extractedFrames.size() == 1) {
-                                final Bitmap first = frameBmp;
-                                runOnUiThread(() -> {
-                                    iv.setImageBitmap(first);
-                                    setupTouchAndPresets(iv, first, wrapper, boxSize, currentCropMode[0]);
-                                    animHandler.postDelayed(animLoopRunnable, frameDelayMs);
-                                });
+            if (isGif) {
+                // --- EXACT NATIVE-SPEED & TRIM-ACCURATE GIF FRAME EXTRACTION ---
+                try {
+                    byte[] gifBytes = readBytesFromUri(videoUri);
+                    List<Integer> delays = parseGifDelays(gifBytes);
+                    int totalGifFrames = delays.size();
+
+                    // Build cumulative start timestamp for every frame in the GIF
+                    long totalGifDurationMs = 0;
+                    long[] frameStartMs = new long[totalGifFrames];
+                    for (int i = 0; i < totalGifFrames; i++) {
+                        frameStartMs[i] = totalGifDurationMs;
+                        totalGifDurationMs += delays.get(i);
+                    }
+
+                    android.graphics.Movie movie = (gifBytes != null)
+                            ? android.graphics.Movie.decodeByteArray(gifBytes, 0, gifBytes.length)
+                            : null;
+
+                    if (totalGifDurationMs <= 0 && movie != null && movie.duration() > 0) {
+                        totalGifDurationMs = movie.duration();
+                    }
+                    if (totalGifDurationMs <= 0) totalGifDurationMs = 2000L;
+
+                    long clampedStartMs = Math.max(0L, Math.min(trimStartMs, totalGifDurationMs - 100L));
+                    long clampedEndMs = Math.max(clampedStartMs + 100L, Math.min(trimEndMs, totalGifDurationMs));
+                    long trimmedSpanMs = clampedEndMs - clampedStartMs;
+
+                    // Collect exact frame indices that fall inside [clampedStartMs, clampedEndMs)
+                    List<Integer> selectedIndices = new ArrayList<>();
+                    int selectedDelaySum = 0;
+                    if (totalGifFrames > 0) {
+                        for (int i = 0; i < totalGifFrames; i++) {
+                            long fMid = frameStartMs[i] + delays.get(i) / 2;
+                            if (fMid >= clampedStartMs && fMid <= clampedEndMs) {
+                                selectedIndices.add(i);
+                                selectedDelaySum += delays.get(i);
+                            }
+                        }
+                        if (selectedIndices.isEmpty()) {
+                            for (int i = 0; i < totalGifFrames; i++) {
+                                selectedIndices.add(i);
+                                selectedDelaySum += delays.get(i);
                             }
                         }
                     }
-                    final int prog = (int) (((i + 1) * 100f) / totalFramesToExtract);
-                    runOnUiThread(() -> pb.setProgress(prog));
-                }
-            } catch (Exception ignored) {
-            } finally {
-                try { retriever.release(); } catch (Exception ignored) {}
+
+                    // If the trimmed GIF has more than 48 frames, downsample evenly while keeping exact total duration
+                    int maxGifFrames = 48;
+                    List<Integer> finalIndices = new ArrayList<>();
+                    if (selectedIndices.size() > maxGifFrames) {
+                        for (int k = 0; k < maxGifFrames; k++) {
+                            int pick = (int) ((k * (long) selectedIndices.size()) / maxGifFrames);
+                            finalIndices.add(selectedIndices.get(pick));
+                        }
+                    } else {
+                        finalIndices.addAll(selectedIndices);
+                    }
+
+                    List<Bitmap> gifFrames = new ArrayList<>();
+
+                    if (movie != null && movie.width() > 0 && movie.height() > 0) {
+                        int mw = movie.width();
+                        int mh = movie.height();
+                        float scale = 512f / Math.max(1, Math.max(mw, mh));
+                        int dstW = Math.max(64, Math.round(mw * scale));
+                        int dstH = Math.max(64, Math.round(mh * scale));
+                        int movieDur = Math.max(1, movie.duration() > 0 ? movie.duration() : (int) totalGifDurationMs);
+
+                        int countToDecode = Math.max(1, finalIndices.size());
+                        for (int k = 0; k < countToDecode; k++) {
+                            if (cancelStudio.get()) break;
+                            long targetTimeMs;
+                            if (!finalIndices.isEmpty() && totalGifFrames > 0) {
+                                int idx = finalIndices.get(k);
+                                targetTimeMs = frameStartMs[idx] + (delays.get(idx) / 2);
+                            } else {
+                                targetTimeMs = clampedStartMs + (k * trimmedSpanMs) / Math.max(1, countToDecode);
+                            }
+                            int relMovieMs = (int) Math.max(0, Math.min(movieDur - 1, (targetTimeMs * movieDur) / totalGifDurationMs));
+
+                            Bitmap frameBmp = Bitmap.createBitmap(dstW, dstH, Bitmap.Config.ARGB_8888);
+                            Canvas c = new Canvas(frameBmp);
+                            c.scale(scale, scale);
+                            movie.setTime(relMovieMs);
+                            movie.draw(c, 0, 0);
+
+                            gifFrames.add(frameBmp);
+                            final int prog = (int) (((k + 1) * 100f) / countToDecode);
+                            runOnUiThread(() -> pb.setProgress(prog));
+                        }
+                    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        // Fallback using AnimatedImageDrawable synchronized to SystemClock.uptimeMillis()
+                        ImageDecoder.Source source = ImageDecoder.createSource(getContentResolver(), videoUri);
+                        Drawable drawable = ImageDecoder.decodeDrawable(source, (decoder, info, src) -> {
+                            decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
+                        });
+                        if (drawable instanceof AnimatedImageDrawable) {
+                            AnimatedImageDrawable animDraw = (AnimatedImageDrawable) drawable;
+                            int w = Math.max(64, animDraw.getIntrinsicWidth() > 0 ? animDraw.getIntrinsicWidth() : 512);
+                            int h = Math.max(64, animDraw.getIntrinsicHeight() > 0 ? animDraw.getIntrinsicHeight() : 512);
+                            float scale = 512f / Math.max(w, h);
+                            int dstW = Math.max(64, Math.round(w * scale));
+                            int dstH = Math.max(64, Math.round(h * scale));
+
+                            animDraw.start();
+                            long startUptime = android.os.SystemClock.uptimeMillis();
+                            int count = Math.max(1, finalIndices.size());
+                            for (int k = 0; k < count; k++) {
+                                if (cancelStudio.get()) break;
+                                int idx = finalIndices.get(k);
+                                long targetElapsed = frameStartMs[idx] + (delays.get(idx) / 2);
+                                long waitMs = (startUptime + targetElapsed) - android.os.SystemClock.uptimeMillis();
+                                if (waitMs > 0) Thread.sleep(waitMs);
+
+                                Bitmap frameBmp = Bitmap.createBitmap(dstW, dstH, Bitmap.Config.ARGB_8888);
+                                Canvas c = new Canvas(frameBmp);
+                                c.scale(scale, scale);
+                                animDraw.draw(c);
+                                gifFrames.add(frameBmp);
+
+                                final int prog = (int) (((k + 1) * 100f) / count);
+                                runOnUiThread(() -> pb.setProgress(prog));
+                            }
+                            animDraw.stop();
+                        }
+                    }
+
+                    if (gifFrames.isEmpty()) {
+                        Bitmap single = decodeSampledBitmapFromUri(videoUri, 512, 512);
+                        if (single != null) gifFrames.add(single);
+                    }
+
+                    // Calculate exact per-frame delay so total duration matches the trimmed GIF duration 1:1
+                    long effectiveSpanMs = selectedDelaySum > 0 ? selectedDelaySum : trimmedSpanMs;
+                    int exactGifDelayMs = Math.max(20, Math.round((float) effectiveSpanMs / Math.max(1, gifFrames.size())));
+                    activeFrameDelayMs[0] = exactGifDelayMs;
+                    runOnUiThread(() -> btnBuild.setTag(exactGifDelayMs));
+
+                    synchronized (extractedFrames) {
+                        extractedFrames.addAll(gifFrames);
+                        if (!extractedFrames.isEmpty()) {
+                            final Bitmap first = extractedFrames.get(0);
+                            runOnUiThread(() -> {
+                                iv.setImageBitmap(first);
+                                setupTouchAndPresets(iv, first, wrapper, boxSize, currentCropMode[0]);
+                                animHandler.postDelayed(animLoopRunnable, activeFrameDelayMs[0]);
+                            });
+                        }
+                    }
+                } catch (Exception ignored) {}
+
                 extractionFinished.set(true);
                 runOnUiThread(() -> {
                     if (!isCompiling.get()) pb.setVisibility(View.GONE);
                 });
+
+            } else {
+                // --- VIDEO FRAME EXTRACTION ---
+                MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+                try {
+                    retriever.setDataSource(this, videoUri);
+                    for (int i = 0; i < totalFramesToExtract; i++) {
+                        if (cancelStudio.get()) break;
+                        long timeUs = (trimStartMs + (long) i * frameDelayMs) * 1000L;
+                        Bitmap raw = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST);
+                        if (raw == null) {
+                            raw = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+                        }
+                        if (raw != null) {
+                            int rw = raw.getWidth();
+                            int rh = raw.getHeight();
+                            float scale = 512f / Math.max(1, Math.max(rw, rh));
+                            int dstW = Math.max(64, Math.round(rw * scale));
+                            int dstH = Math.max(64, Math.round(rh * scale));
+                            Bitmap frameBmp = Bitmap.createScaledBitmap(raw, dstW, dstH, true);
+                            if (frameBmp != raw) raw.recycle();
+
+                            synchronized (extractedFrames) {
+                                extractedFrames.add(frameBmp);
+                                if (extractedFrames.size() == 1) {
+                                    final Bitmap first = frameBmp;
+                                    runOnUiThread(() -> {
+                                        iv.setImageBitmap(first);
+                                        setupTouchAndPresets(iv, first, wrapper, boxSize, currentCropMode[0]);
+                                        animHandler.postDelayed(animLoopRunnable, activeFrameDelayMs[0]);
+                                    });
+                                }
+                            }
+                        }
+                        final int prog = (int) (((i + 1) * 100f) / totalFramesToExtract);
+                        runOnUiThread(() -> pb.setProgress(prog));
+                    }
+                } catch (Exception ignored) {
+                } finally {
+                    try { retriever.release(); } catch (Exception ignored) {}
+                    extractionFinished.set(true);
+                    runOnUiThread(() -> {
+                        if (!isCompiling.get()) pb.setVisibility(View.GONE);
+                    });
+                }
             }
         }).start();
 
@@ -1869,8 +2419,13 @@ public class StickerMakerActivity extends AppCompatActivity {
                         });
                     }
 
+                    int effectiveDelayMs = activeFrameDelayMs[0];
+                    if (btnBuild.getTag() != null && btnBuild.getTag() instanceof Integer) {
+                        effectiveDelayMs = (Integer) btnBuild.getTag();
+                    }
+
                     byte[] animatedWebpBytes = encodeGuaranteedUnder500KB(
-                            renderedFrames, frameDelayMs, cMode, cRadius, sLevel, pb, btnBuild);
+                            renderedFrames, effectiveDelayMs, cMode, cRadius, sLevel, pb, btnBuild);
 
                     try (FileOutputStream outSticker = new FileOutputStream(tmpFile)) {
                         outSticker.write(animatedWebpBytes);

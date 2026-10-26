@@ -197,7 +197,7 @@ public class SlateActivity extends AppCompatActivity {
         final EditText[] hexInputHolder = new EditText[1];
         final View[] colorPreviewHolder = new View[1];
 
-        ColorSpectrumView colorSpectrum = new ColorSpectrumView(this, currentColor, color -> {
+        final ColorBoxView colorBox = new ColorBoxView(this, currentColor, color -> {
             slateCanvas.setPenColor(color);
             String hex = String.format("#%06X", (0xFFFFFF & color));
             if (hexInputHolder[0] != null && !hexInputHolder[0].hasFocus()) {
@@ -208,23 +208,24 @@ public class SlateActivity extends AppCompatActivity {
                 if (previewBg != null) previewBg.setColor(color);
             }
         });
-        LinearLayout.LayoutParams specLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(180));
-        specLp.bottomMargin = dpToPx(14);
-        root.addView(colorSpectrum, specLp);
+        LinearLayout.LayoutParams boxLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(180));
+        boxLp.bottomMargin = dpToPx(14);
+        root.addView(colorBox, boxLp);
 
-        GrayscaleBarView grayscaleBar = new GrayscaleBarView(this, color -> {
-            slateCanvas.setPenColor(color);
-            colorSpectrum.setColor(color);
-            String hex = String.format("#%06X", (0xFFFFFF & color));
+        HueBarView hueBar = new HueBarView(this, currentColor, color -> {
+            colorBox.setHue(color);
+            int updatedColor = colorBox.getCurrentColor();
+            slateCanvas.setPenColor(updatedColor);
+            String hex = String.format("#%06X", (0xFFFFFF & updatedColor));
             if (hexInputHolder[0] != null) hexInputHolder[0].setText(hex);
             if (colorPreviewHolder[0] != null) {
                 GradientDrawable previewBg = (GradientDrawable) colorPreviewHolder[0].getBackground();
-                if (previewBg != null) previewBg.setColor(color);
+                if (previewBg != null) previewBg.setColor(updatedColor);
             }
         });
-        LinearLayout.LayoutParams grayLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(44));
-        grayLp.bottomMargin = dpToPx(16);
-        root.addView(grayscaleBar, grayLp);
+        LinearLayout.LayoutParams hueLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(40));
+        hueLp.bottomMargin = dpToPx(16);
+        root.addView(hueBar, hueLp);
 
         LinearLayout hexRow = new LinearLayout(this); hexRow.setOrientation(LinearLayout.HORIZONTAL);
         hexRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -257,8 +258,8 @@ public class SlateActivity extends AppCompatActivity {
                 if (!val.startsWith("#")) val = "#" + val;
                 int parsedColor = Color.parseColor(val);
                 slateCanvas.setPenColor(parsedColor);
-                colorSpectrum.setColor(parsedColor);
-                grayscaleBar.setColor(parsedColor);
+                colorBox.setColor(parsedColor);
+                hueBar.setColor(parsedColor);
                 previewBg.setColor(parsedColor);
                 Toast.makeText(this, "Color applied!", Toast.LENGTH_SHORT).show();
             } catch (Exception e) {
@@ -278,19 +279,25 @@ public class SlateActivity extends AppCompatActivity {
         d.setContentView(root); d.show();
     }
 
-    private static class GrayscaleBarView extends View {
+    private static class HueBarView extends View {
         private final Paint barPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint borderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint indicatorPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private float currentRatio = 0.5f;
-        private final OnGrayscaleChangedListener listener;
+        private final Paint indicatorShadowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private float currentHue = 0f;
+        private final OnHueChangedListener listener;
 
-        interface OnGrayscaleChangedListener { void onGrayscaleChanged(int color); }
+        interface OnHueChangedListener { void onHueChanged(int color); }
 
-        GrayscaleBarView(Context context, OnGrayscaleChangedListener l) {
+        HueBarView(Context context, int initialColor, OnHueChangedListener l) {
             super(context); this.listener = l;
-            borderPaint.setStyle(Paint.Style.STROKE); borderPaint.setStrokeWidth(3f); borderPaint.setColor(Color.DKGRAY);
+            float[] hsv = new float[3];
+            Color.colorToHSV(initialColor, hsv);
+            currentHue = hsv[0];
+
+            borderPaint.setStyle(Paint.Style.STROKE); borderPaint.setStrokeWidth(3f); borderPaint.setColor(Color.argb(50, 0, 0, 0));
             indicatorPaint.setStyle(Paint.Style.STROKE); indicatorPaint.setStrokeWidth(5f); indicatorPaint.setColor(Color.WHITE);
+            indicatorShadowPaint.setStyle(Paint.Style.STROKE); indicatorShadowPaint.setStrokeWidth(2f); indicatorShadowPaint.setColor(Color.BLACK);
         }
 
         @Override
@@ -300,8 +307,11 @@ public class SlateActivity extends AppCompatActivity {
             if (w <= 0 || h <= 0) return;
             float radius = h / 2f;
 
+            int[] rainbowColors = new int[]{
+                    Color.RED, Color.YELLOW, Color.GREEN, Color.CYAN, Color.BLUE, Color.MAGENTA, Color.RED
+            };
             android.graphics.LinearGradient gradient = new android.graphics.LinearGradient(
-                    0, 0, w, 0, Color.WHITE, Color.BLACK, android.graphics.Shader.TileMode.CLAMP
+                    0, 0, w, 0, rainbowColors, null, android.graphics.Shader.TileMode.CLAMP
             );
             barPaint.setShader(gradient);
 
@@ -309,7 +319,10 @@ public class SlateActivity extends AppCompatActivity {
             canvas.drawRoundRect(rect, radius, radius, barPaint);
             canvas.drawRoundRect(rect, radius, radius, borderPaint);
 
-            float cx = currentRatio * w;
+            float cx = (currentHue / 360f) * w;
+            cx = Math.max(radius, Math.min(w - radius, cx));
+
+            canvas.drawCircle(cx, h / 2f, radius - 4f, indicatorShadowPaint);
             canvas.drawCircle(cx, h / 2f, radius - 4f, indicatorPaint);
         }
 
@@ -319,36 +332,24 @@ public class SlateActivity extends AppCompatActivity {
             int action = event.getAction();
             if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
                 float x = Math.max(0f, Math.min(event.getX(), getWidth()));
-                currentRatio = x / getWidth();
+                currentHue = (x / getWidth()) * 360f;
                 invalidate();
-
-                int grayVal = (int) (255 * (1f - currentRatio));
-                int color = Color.rgb(grayVal, grayVal, grayVal);
-                if (listener != null) listener.onGrayscaleChanged(color);
+                int color = Color.HSVToColor(new float[]{currentHue, 1f, 1f});
+                if (listener != null) listener.onHueChanged(color);
                 return true;
             }
             return super.onTouchEvent(event);
         }
 
         void setColor(int color) {
-            int r = Color.red(color), g = Color.green(color), b = Color.blue(color);
-            if (Math.abs(r - g) < 15 && Math.abs(g - b) < 15) {
-                float brightness = (r + g + b) / 3f / 255f;
-                currentRatio = 1f - brightness;
-                invalidate();
-            }
+            float[] hsv = new float[3];
+            Color.colorToHSV(color, hsv);
+            currentHue = hsv[0];
+            invalidate();
         }
     }
 
-    /**
-     * Rectangular hue picker:
-     * - Top half transitions from white to the pure hue.
-     * - Bottom half transitions from the pure hue to black.
-     *
-     * The bitmap and touch handler use the same color function, so the color
-     * selected by the finger is the same color displayed at that pixel.
-     */
-    private static class ColorSpectrumView extends View {
+    private static class ColorBoxView extends View {
         private final Paint spectrumPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
         private final Paint indicatorPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint indicatorShadowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -362,7 +363,7 @@ public class SlateActivity extends AppCompatActivity {
             void onColorChanged(int color);
         }
 
-        ColorSpectrumView(Context context, int initialColor, OnColorChangedListener l) {
+        ColorBoxView(Context context, int initialColor, OnColorChangedListener l) {
             super(context);
             this.listener = l;
             Color.colorToHSV(initialColor, hsv);
@@ -376,26 +377,8 @@ public class SlateActivity extends AppCompatActivity {
             indicatorShadowPaint.setColor(Color.BLACK);
         }
 
-        private static int colorAt(float xRatio, float yRatio) {
-            float hue = (xRatio - (float) Math.floor(xRatio)) * 360f;
-            float y = Math.max(0f, Math.min(1f, yRatio));
-
-            float saturation;
-            float value;
-
-            if (y <= 0.5f) {
-                // White at the top, becoming the full hue at the center.
-                saturation = y * 2f;
-                value = 1f;
-            } else {
-                // Full hue at the center, becoming black at the bottom.
-                saturation = 1f;
-                value = (1f - y) * 2f;
-            }
-
-            value = Math.max(0f, Math.min(1f, value));
-            saturation = Math.max(0f, Math.min(1f, saturation));
-            return Color.HSVToColor(new float[]{hue, saturation, value});
+        int getCurrentColor() {
+            return Color.HSVToColor(hsv);
         }
 
         private void rebuildBitmap(int width, int height) {
@@ -407,11 +390,15 @@ public class SlateActivity extends AppCompatActivity {
             }
 
             int[] pixels = new int[width * height];
+            float[] tempHsv = new float[]{hsv[0], 0f, 1f};
+
             for (int y = 0; y < height; y++) {
-                float yRatio = height <= 1 ? 0f : y / (float) (height - 1);
+                float value = height <= 1 ? 1f : 1f - (y / (float) (height - 1));
+                tempHsv[2] = value;
                 for (int x = 0; x < width; x++) {
-                    float xRatio = width <= 1 ? 0f : x / (float) (width - 1);
-                    pixels[y * width + x] = colorAt(xRatio, yRatio);
+                    float saturation = width <= 1 ? 0f : x / (float) (width - 1);
+                    tempHsv[1] = saturation;
+                    pixels[y * width + x] = Color.HSVToColor(tempHsv);
                 }
             }
 
@@ -442,15 +429,8 @@ public class SlateActivity extends AppCompatActivity {
             }
             canvas.restoreToCount(save);
 
-            // Map the current HSV color back to the same position mapping used
-            // by colorAt(), keeping the selection ring over the displayed color.
-            float px = (hsv[0] / 360f) * (w - 1);
-            float py;
-            if (hsv[2] < 0.999f) {
-                py = (1f - hsv[2] / 2f) * (h - 1);
-            } else {
-                py = (hsv[1] / 2f) * (h - 1);
-            }
+            float px = hsv[1] * (w - 1);
+            float py = (1f - hsv[2]) * (h - 1);
 
             px = Math.max(0f, Math.min(w, px));
             py = Math.max(0f, Math.min(h, py));
@@ -471,21 +451,28 @@ public class SlateActivity extends AppCompatActivity {
 
                 float x = Math.max(0f, Math.min(event.getX(), w - 1f));
                 float y = Math.max(0f, Math.min(event.getY(), h - 1f));
-                float xRatio = w <= 1f ? 0f : x / (w - 1f);
-                float yRatio = h <= 1f ? 0f : y / (h - 1f);
 
-                int selectedColor = colorAt(xRatio, yRatio);
-                Color.colorToHSV(selectedColor, hsv);
+                hsv[1] = x / (w - 1f);
+                hsv[2] = 1f - (y / (h - 1f));
 
                 invalidate();
-                if (listener != null) listener.onColorChanged(selectedColor);
+                if (listener != null) listener.onColorChanged(getCurrentColor());
                 return true;
             }
             return super.onTouchEvent(event);
         }
 
+        void setHue(int color) {
+            float[] tempHsv = new float[3];
+            Color.colorToHSV(color, tempHsv);
+            hsv[0] = tempHsv[0];
+            bitmapWidth = -1; // force bitmap rebuild with new hue
+            invalidate();
+        }
+
         void setColor(int color) {
             Color.colorToHSV(color, hsv);
+            bitmapWidth = -1;
             invalidate();
         }
 
@@ -910,6 +897,7 @@ public class SlateActivity extends AppCompatActivity {
                 float minZoom = isFieldZoomEnabled ? 0.001f : 0.5f;
                 float maxZoom = 5.0f;
                 scaleFactor = Math.max(minZoom, Math.min(scaleFactor * d.getScaleFactor(), maxZoom));
+
                 float adjusted = scaleFactor / prevScale; float fx = d.getFocusX(), fy = d.getFocusY();
                 translateX = fx - (fx - translateX) * adjusted; translateY = fy - (fy - translateY) * adjusted;
                 updateMatrix(); return true;
