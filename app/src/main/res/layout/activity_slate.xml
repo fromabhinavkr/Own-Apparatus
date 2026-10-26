@@ -1,28 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/slateRoot" android:layout_width="match_parent" android:layout_height="match_parent" android:fitsSystemWindows="true" android:clipChildren="false">
+    android:id="@+id/slateRoot" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:fitsSystemWindows="false" android:clipChildren="false" android:clipToPadding="false">
 
     <FrameLayout android:id="@+id/slateContainer" android:layout_width="match_parent" android:layout_height="match_parent" />
 
-    <LinearLayout
-        android:id="@+id/flowerMenuLayout" android:layout_width="wrap_content" android:layout_height="wrap_content"
-        android:layout_above="@id/btnFlowerMenu" android:layout_alignParentEnd="true" android:layout_marginEnd="4dp" android:layout_marginBottom="12dp"
-        android:paddingStart="40dp" android:paddingEnd="20dp"
-        android:gravity="end" android:orientation="vertical" android:visibility="gone" android:clipChildren="false" android:clipToPadding="false">
+    <ScrollView
+        android:id="@+id/flowerMenuScroll" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_above="@id/btnFlowerMenu" android:layout_alignParentTop="true" android:layout_alignParentEnd="true"
+        android:layout_marginEnd="8dp" android:layout_marginBottom="8dp" android:fillViewport="true"
+        android:scrollbars="none" android:overScrollMode="never" android:visibility="gone"
+        android:clipChildren="false" android:clipToPadding="false">
 
-        <Button android:id="@+id/menuPen" android:layout_width="200dp" android:layout_height="48dp" android:layout_marginBottom="8dp" android:text="Pen" android:textColor="#FFFFFF" android:textStyle="bold" />
-        <Button android:id="@+id/menuEraser" android:layout_width="200dp" android:layout_height="48dp" android:layout_marginBottom="8dp" android:text="Eraser" android:textColor="#FFFFFF" android:textStyle="bold" />
-        <Button android:id="@+id/menuClear" android:layout_width="200dp" android:layout_height="48dp" android:layout_marginBottom="8dp" android:text="Clear" android:textColor="#FFFFFF" android:textStyle="bold" />
-        <Button android:id="@+id/menuSave" android:layout_width="200dp" android:layout_height="48dp" android:layout_marginBottom="8dp" android:text="Save Draft" android:textColor="#FFFFFF" android:textStyle="bold" />
-        <Button android:id="@+id/menuDrafts" android:layout_width="200dp" android:layout_height="48dp" android:layout_marginBottom="8dp" android:text="Drafts" android:textColor="#FFFFFF" android:textStyle="bold" />
-        <Button android:id="@+id/menuTheme" android:layout_width="200dp" android:layout_height="48dp" android:layout_marginBottom="8dp" android:text="Theme" android:textColor="#FFFFFF" android:textStyle="bold" />
-        <Button android:id="@+id/menuZoom" android:layout_width="200dp" android:layout_height="48dp" android:layout_marginBottom="8dp" android:text="Zoom: ON" android:textColor="#FFFFFF" android:textStyle="bold" android:backgroundTint="#34C759" />
-        <Button android:id="@+id/menuFieldZoom" android:layout_width="200dp" android:layout_height="48dp" android:layout_marginBottom="8dp" android:text="Field Zoom: OFF" android:textColor="#FFFFFF" android:textStyle="bold" android:backgroundTint="#FF3B30" />
-        <Button android:id="@+id/menuExit" android:layout_width="200dp" android:layout_height="48dp" android:layout_marginBottom="8dp" android:text="Exit" android:textColor="#FFFFFF" android:textStyle="bold" />
-    </LinearLayout>
+        <LinearLayout
+            android:id="@+id/flowerMenuLayout" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:paddingStart="24dp" android:paddingEnd="12dp" android:paddingTop="8dp" android:paddingBottom="4dp"
+            android:gravity="bottom|end" android:orientation="vertical" android:clipChildren="false" android:clipToPadding="false">
+
+            <Button android:id="@+id/menuPen" android:layout_width="185dp" android:layout_height="40dp" android:layout_marginBottom="5dp" android:text="Pen" android:textColor="#FFFFFF" android:textStyle="bold" android:singleLine="true" android:includeFontPadding="false" />
+            <Button android:id="@+id/menuEraser" android:layout_width="185dp" android:layout_height="40dp" android:layout_marginBottom="5dp" android:text="Eraser" android:textColor="#FFFFFF" android:textStyle="bold" android:singleLine="true" android:includeFontPadding="false" />
+            <Button android:id="@+id/menuUndo" android:layout_width="185dp" android:layout_height="40dp" android:layout_marginBottom="5dp" android:text="Undo" android:textColor="#FFFFFF" android:textStyle="bold" android:singleLine="true" android:includeFontPadding="false" />
+            <Button android:id="@+id/menuColor" android:layout_width="185dp" android:layout_height="40dp" android:layout_marginBottom="5dp" android:text="Brush Color" android:textColor="#FFFFFF" android:textStyle="bold" android:singleLine="true" android:includeFontPadding="false" />
+            <Button android:id="@+id/menuClear" android:layout_width="185dp" android:layout_height="40dp" android:layout_marginBottom="5dp" android:text="Clear" android:textColor="#FFFFFF" android:textStyle="bold" android:singleLine="true" android:includeFontPadding="false" />
+            <Button android:id="@+id/menuSave" android:layout_width="185dp" android:layout_height="40dp" android:layout_marginBottom="5dp" android:text="Save Draft" android:textColor="#FFFFFF" android:textStyle="bold" android:singleLine="true" android:includeFontPadding="false" />
+            <Button android:id="@+id/menuDrafts" android:layout_width="185dp" android:layout_height="40dp" android:layout_marginBottom="5dp" android:text="Drafts" android:textColor="#FFFFFF" android:textStyle="bold" android:singleLine="true" android:includeFontPadding="false" />
+            <Button android:id="@+id/menuTheme" android:layout_width="185dp" android:layout_height="40dp" android:layout_marginBottom="5dp" android:text="Theme" android:textColor="#FFFFFF" android:textStyle="bold" android:singleLine="true" android:includeFontPadding="false" />
+            <Button android:id="@+id/menuZoom" android:layout_width="185dp" android:layout_height="40dp" android:layout_marginBottom="5dp" android:text="Zoom: ON" android:textColor="#FFFFFF" android:textStyle="bold" android:singleLine="true" android:includeFontPadding="false" />
+            <Button android:id="@+id/menuFieldZoom" android:layout_width="185dp" android:layout_height="40dp" android:layout_marginBottom="5dp" android:text="Field Zoom: OFF" android:textColor="#FFFFFF" android:textStyle="bold" android:singleLine="true" android:includeFontPadding="false" />
+            <Button android:id="@+id/menuExit" android:layout_width="185dp" android:layout_height="40dp" android:layout_marginBottom="4dp" android:text="Exit" android:textColor="#FFFFFF" android:textStyle="bold" android:singleLine="true" android:includeFontPadding="false" />
+        </LinearLayout>
+    </ScrollView>
 
     <TextView
-        android:id="@+id/btnFlowerMenu" android:layout_width="64dp" android:layout_height="64dp" android:layout_alignParentBottom="true"
-        android:layout_alignParentEnd="true" android:layout_margin="24dp" android:background="@drawable/ic_flower_bg"
-        android:elevation="16dp" android:gravity="center" android:includeFontPadding="false" android:text="Menu" android:textSize="14sp" android:textStyle="bold" android:textColor="#FFFFFF" android:clickable="true" android:focusable="true" />
+        android:id="@+id/btnFlowerMenu" android:layout_width="64dp" android:layout_height="64dp"
+        android:layout_alignParentBottom="true" android:layout_alignParentEnd="true" android:layout_margin="20dp"
+        android:background="@drawable/ic_flower_bg" android:elevation="16dp" android:gravity="center"
+        android:includeFontPadding="false" android:text="Menu" android:textSize="14sp" android:textStyle="bold"
+        android:textColor="#FFFFFF" android:clickable="true" android:focusable="true" />
 </RelativeLayout>
