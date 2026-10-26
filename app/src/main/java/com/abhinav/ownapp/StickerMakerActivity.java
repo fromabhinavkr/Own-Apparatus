@@ -932,9 +932,10 @@ public class StickerMakerActivity extends AppCompatActivity {
         header.setGravity(Gravity.CENTER);
         header.setPadding(0, 0, 0, (int) (14 * density));
 
-        FrameLayout headerIcon = new FrameLayout(this);
+        ImageView headerIcon = new ImageView(this);
         headerIcon.setLayoutParams(new LinearLayout.LayoutParams((int) (24 * density), (int) (24 * density)));
-        headerIcon.addView(new StickerIconView(this, StickerIconView.ICON_SCISSORS, accentColor));
+        headerIcon.setImageResource(R.drawable.ic_scissors);
+        headerIcon.setColorFilter(accentColor, PorterDuff.Mode.SRC_IN);
         header.addView(headerIcon);
 
         TextView title = new TextView(this);
@@ -1580,6 +1581,7 @@ public class StickerMakerActivity extends AppCompatActivity {
         layout.addView(chipRow);
 
         // Rotate & Mirror Tools Row
+        // --- ROTATE AND MIRROR TOOLS ROW (ANIMATED STUDIO) ---
         LinearLayout toolsRow = new LinearLayout(this);
         toolsRow.setOrientation(LinearLayout.HORIZONTAL);
         toolsRow.setGravity(Gravity.CENTER);
@@ -1590,6 +1592,9 @@ public class StickerMakerActivity extends AppCompatActivity {
             LinearLayout bLayout = new LinearLayout(this);
             bLayout.setOrientation(LinearLayout.HORIZONTAL);
             bLayout.setGravity(Gravity.CENTER);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                bLayout.setElevation(0);
+            }
             GradientDrawable tGd = new GradientDrawable();
             tGd.setColor(panelColor);
             tGd.setCornerRadius(100f);
@@ -1602,17 +1607,28 @@ public class StickerMakerActivity extends AppCompatActivity {
             tLp.setMargins((int) (5 * density), 0, (int) (5 * density), 0);
             bLayout.setLayoutParams(tLp);
 
-            FrameLayout icHolder = new FrameLayout(this);
+            // 1. Vector Icon
             int icSize = (int) (18 * density);
             LinearLayout.LayoutParams icLp = new LinearLayout.LayoutParams(icSize, icSize);
             icLp.setMargins(0, 0, (int) (6 * density), 0);
-            icHolder.setLayoutParams(icLp);
-            StickerIconView sIcon = new StickerIconView(
-                    this, i == 0 ? StickerIconView.ICON_ROTATE : StickerIconView.ICON_FLIP, textColor);
-            if (i == 2) sIcon.setRotation(90f);
-            icHolder.addView(sIcon);
-            bLayout.addView(icHolder);
 
+            ImageView ivToolIcon = new ImageView(this);
+            ivToolIcon.setLayoutParams(icLp);
+
+            if (i == 0) {
+                ivToolIcon.setImageResource(R.drawable.ic_rotationright);
+                ivToolIcon.setColorFilter(textColor, PorterDuff.Mode.SRC_IN);
+            } else if (i == 1) {
+                ivToolIcon.setImageResource(R.drawable.ic_flip);
+                ivToolIcon.setColorFilter(textColor, PorterDuff.Mode.SRC_IN);
+            } else {
+                ivToolIcon.setImageResource(R.drawable.ic_flip);
+                ivToolIcon.setColorFilter(textColor, PorterDuff.Mode.SRC_IN);
+                ivToolIcon.setRotation(90f);
+            }
+            bLayout.addView(ivToolIcon);
+
+            // 2. Text Label
             TextView tv = new TextView(this);
             tv.setText(tNames[i]);
             tv.setTextSize(12f);
@@ -2153,9 +2169,10 @@ public class StickerMakerActivity extends AppCompatActivity {
         header.setGravity(Gravity.CENTER);
         header.setPadding(0, 0, 0, (int) (16 * density));
 
-        FrameLayout iconScissors = new FrameLayout(this);
+        ImageView iconScissors = new ImageView(this);
         iconScissors.setLayoutParams(new LinearLayout.LayoutParams((int) (24 * density), (int) (24 * density)));
-        iconScissors.addView(new StickerIconView(this, StickerIconView.ICON_SCISSORS, accentColor));
+        iconScissors.setImageResource(R.drawable.ic_scissors);
+        iconScissors.setColorFilter(accentColor, PorterDuff.Mode.SRC_IN);
         header.addView(iconScissors);
 
         TextView title = new TextView(this);
@@ -2459,15 +2476,21 @@ public class StickerMakerActivity extends AppCompatActivity {
         }
         layout.addView(chipRow);
 
+        // --- ROTATE AND MIRROR TOOLS ROW ---
+        // --- ROTATE AND MIRROR TOOLS ROW (STATIC STUDIO) ---
         LinearLayout toolsRow = new LinearLayout(this);
         toolsRow.setOrientation(LinearLayout.HORIZONTAL);
         toolsRow.setGravity(Gravity.CENTER);
         toolsRow.setPadding(0, 0, 0, (int) (24 * density));
+
         String[] tNames = {"Rotate", "Flip H", "Flip V"};
         for (int i = 0; i < 3; i++) {
             LinearLayout bLayout = new LinearLayout(this);
             bLayout.setOrientation(LinearLayout.HORIZONTAL);
             bLayout.setGravity(Gravity.CENTER);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                bLayout.setElevation(0);
+            }
             GradientDrawable tGd = new GradientDrawable();
             tGd.setColor(panelColor);
             tGd.setCornerRadius(100f);
@@ -2480,17 +2503,28 @@ public class StickerMakerActivity extends AppCompatActivity {
             tLp.setMargins((int) (5 * density), 0, (int) (5 * density), 0);
             bLayout.setLayoutParams(tLp);
 
-            FrameLayout icHolder = new FrameLayout(this);
+            // 1. Vector Icon
             int icSize = (int) (18 * density);
             LinearLayout.LayoutParams icLp = new LinearLayout.LayoutParams(icSize, icSize);
             icLp.setMargins(0, 0, (int) (6 * density), 0);
-            icHolder.setLayoutParams(icLp);
-            StickerIconView sIcon = new StickerIconView(
-                    this, i == 0 ? StickerIconView.ICON_ROTATE : StickerIconView.ICON_FLIP, textColor);
-            if (i == 2) sIcon.setRotation(90f);
-            icHolder.addView(sIcon);
-            bLayout.addView(icHolder);
 
+            ImageView ivToolIcon = new ImageView(this);
+            ivToolIcon.setLayoutParams(icLp);
+
+            if (i == 0) {
+                ivToolIcon.setImageResource(R.drawable.ic_rotationright);
+                ivToolIcon.setColorFilter(textColor, PorterDuff.Mode.SRC_IN);
+            } else if (i == 1) {
+                ivToolIcon.setImageResource(R.drawable.ic_flip);
+                ivToolIcon.setColorFilter(textColor, PorterDuff.Mode.SRC_IN);
+            } else {
+                ivToolIcon.setImageResource(R.drawable.ic_flip);
+                ivToolIcon.setColorFilter(textColor, PorterDuff.Mode.SRC_IN);
+                ivToolIcon.setRotation(90f);
+            }
+            bLayout.addView(ivToolIcon);
+
+            // 2. Text Label
             TextView tv = new TextView(this);
             tv.setText(tNames[i]);
             tv.setTextSize(12f);
