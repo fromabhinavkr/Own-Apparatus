@@ -10,6 +10,7 @@ import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
@@ -26,22 +27,23 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
+import android.view.WindowManager;
 import android.view.animation.AccelerateDecelerateInterpolator;
 import android.view.animation.DecelerateInterpolator;
 import android.view.animation.OvershootInterpolator;
 import android.widget.EditText;
 import android.widget.LinearLayout;
-import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.activity.EdgeToEdge;
 import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 
 import java.io.OutputStream;
 import java.util.ArrayList;
@@ -56,7 +58,9 @@ import java.util.regex.Pattern;
 
 @SuppressWarnings("all")
 public class TextPadActivity extends AppCompatActivity {
-    private boolean isDarkTheme, isMenuOpen = false, isHdlDetEnabled = false;
+    // 0 = Light, 1 = Dark, 2 = AMOLED
+    private int themeState = 1;
+    private boolean isDarkTheme = true, isMenuOpen = false, isHdlDetEnabled = false;
     private SharedPreferences prefs;
     private LinearLayout flowerMenuLayout, loadingOverlay;
     private ScrollView textScrollView;
@@ -69,7 +73,6 @@ public class TextPadActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        EdgeToEdge.enable(this);
         setContentView(R.layout.activity_textpad);
 
         View root = findViewById(R.id.textPadRoot);
@@ -77,30 +80,44 @@ public class TextPadActivity extends AppCompatActivity {
         textScrollView = findViewById(R.id.textScrollView);
         btnRefreshHdl = findViewById(R.id.btnRefreshHdl);
         loadingOverlay = findViewById(R.id.loadingOverlay);
+        flowerMenuLayout = findViewById(R.id.flowerMenuLayout);
 
         ideEditText.setFilters(new InputFilter[]{new InputFilter.LengthFilter(1000000)});
 
-        root.setAlpha(0f); root.setScaleX(0.90f); root.setScaleY(0.90f);
-        root.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(450).setInterpolator(new DecelerateInterpolator(1.5f)).start();
-
         ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
-            Insets sys = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            Insets sys = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
             v.setPadding(sys.left, sys.top, sys.right, sys.bottom);
             return WindowInsetsCompat.CONSUMED;
         });
 
         prefs = getSharedPreferences(SnakeWidget.PREFS_NAME, MODE_PRIVATE);
-        isDarkTheme = prefs.getBoolean(SnakeWidget.PREF_IS_DARK, true);
-
-        flowerMenuLayout = findViewById(R.id.flowerMenuLayout);
-        TextView btnFlowerMenu = findViewById(R.id.btnFlowerMenu);
-        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
-            @Override public void handleOnBackPressed() { showExitConfirmationDialog(); }
-        });
-        btnFlowerMenu.setOnClickListener(v -> toggleMenu(!isMenuOpen, btnFlowerMenu));
+        loadThemeStateFromPrefs();
 
         syntaxHighlighter = new VerilogHighlighter();
         ideEditText.addTextChangedListener(syntaxHighlighter);
+
+        // Apply window, status bar, and view colors BEFORE starting the scale animation to prevent border/status bar glitching
+        updateTheme();
+
+        root.setAlpha(0f);
+        root.setScaleX(0.90f);
+        root.setScaleY(0.90f);
+        root.animate()
+                .alpha(1f)
+                .scaleX(1f)
+                .scaleY(1f)
+                .setDuration(450)
+                .setInterpolator(new DecelerateInterpolator(1.5f))
+                .start();
+
+        TextView btnFlowerMenu = findViewById(R.id.btnFlowerMenu);
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                showExitConfirmationDialog();
+            }
+        });
+        btnFlowerMenu.setOnClickListener(v -> toggleMenu(!isMenuOpen, btnFlowerMenu));
 
         btnRefreshHdl.setOnClickListener(v -> syntaxHighlighter.forceRehighlight());
 
@@ -111,20 +128,117 @@ public class TextPadActivity extends AppCompatActivity {
 
             btnRefreshHdl.setVisibility(isHdlDetEnabled ? View.VISIBLE : View.GONE);
 
-            if (isHdlDetEnabled) { showHdlUsageDialog(); }
+            if (isHdlDetEnabled) {
+                showHdlUsageDialog();
+            }
 
             syntaxHighlighter.forceRehighlight();
             toggleMenu(false, btnFlowerMenu);
         });
 
-        findViewById(R.id.menuClear).setOnClickListener(v -> { ideEditText.setText(""); toggleMenu(false, btnFlowerMenu); });
-        findViewById(R.id.menuSave).setOnClickListener(v -> { toggleMenu(false, btnFlowerMenu); showSaveDraftDialog(); });
-        findViewById(R.id.menuDrafts).setOnClickListener(v -> { toggleMenu(false, btnFlowerMenu); showDraftsGalleryDialog(); });
-        findViewById(R.id.menuTheme).setOnClickListener(v -> { isDarkTheme = !isDarkTheme; updateTheme(); toggleMenu(false, btnFlowerMenu); });
-        findViewById(R.id.menuExit).setOnClickListener(v -> { toggleMenu(false, btnFlowerMenu); showExitConfirmationDialog(); });
+        findViewById(R.id.menuClear).setOnClickListener(v -> {
+            ideEditText.setText("");
+            toggleMenu(false, btnFlowerMenu);
+        });
+        findViewById(R.id.menuSave).setOnClickListener(v -> {
+            toggleMenu(false, btnFlowerMenu);
+            showSaveDraftDialog();
+        });
+        findViewById(R.id.menuDrafts).setOnClickListener(v -> {
+            toggleMenu(false, btnFlowerMenu);
+            showDraftsGalleryDialog();
+        });
+        findViewById(R.id.menuTheme).setOnClickListener(v -> {
+            // Cycle through 0 (Light) -> 1 (Dark) -> 2 (AMOLED)
+            themeState = (themeState + 1) % 3;
+            isDarkTheme = (themeState != 0);
+            prefs.edit()
+                    .putInt("app_theme_state", themeState)
+                    .putBoolean(SnakeWidget.PREF_IS_DARK, isDarkTheme)
+                    .apply();
+            updateTheme();
+            toggleMenu(false, btnFlowerMenu);
+        });
+        findViewById(R.id.menuExit).setOnClickListener(v -> {
+            toggleMenu(false, btnFlowerMenu);
+            showExitConfirmationDialog();
+        });
 
-        updateTheme();
         updateToolIndicators(menuHdlDet);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (prefs != null) {
+            int previousState = themeState;
+            loadThemeStateFromPrefs();
+            if (previousState != themeState) {
+                updateTheme();
+            } else {
+                applyWindowAndStatusBarTheme();
+            }
+        }
+    }
+
+    private void loadThemeStateFromPrefs() {
+        if (prefs.contains("app_theme_state")) {
+            themeState = prefs.getInt("app_theme_state", 1);
+        } else {
+            boolean legacyDark = prefs.getBoolean(SnakeWidget.PREF_IS_DARK, true);
+            themeState = legacyDark ? 1 : 0;
+        }
+        isDarkTheme = (themeState != 0);
+    }
+
+    private int getThemeBackgroundColor() {
+        if (themeState == 0) return Color.WHITE;
+        if (themeState == 1) return Color.parseColor("#1C1C1E");
+        return Color.BLACK; // AMOLED (#000000)
+    }
+
+    private int getDialogBackgroundColor() {
+        if (themeState == 0) return Color.parseColor("#E6F2F2F7");
+        if (themeState == 1) return Color.parseColor("#E61C1C1E");
+        return Color.parseColor("#F20C0C0E"); // AMOLED dialog surface
+    }
+
+    private int getCardBackgroundColor() {
+        if (themeState == 0) return Color.parseColor("#FFFFFF");
+        if (themeState == 1) return Color.parseColor("#3A3A3C");
+        return Color.parseColor("#1C1C1E"); // AMOLED input/card surface
+    }
+
+    private void applyWindowAndStatusBarTheme() {
+        Window window = getWindow();
+        if (window == null) return;
+
+        int bgColor = getThemeBackgroundColor();
+
+        WindowCompat.setDecorFitsSystemWindows(window, false);
+        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
+        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
+        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            WindowManager.LayoutParams layoutParams = window.getAttributes();
+            layoutParams.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            window.setAttributes(layoutParams);
+        }
+
+        window.setStatusBarColor(Color.TRANSPARENT);
+        window.setNavigationBarColor(Color.TRANSPARENT);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.setNavigationBarContrastEnforced(false);
+        }
+        window.setBackgroundDrawable(new ColorDrawable(bgColor));
+
+        WindowInsetsControllerCompat windowController = WindowCompat.getInsetsController(window, window.getDecorView());
+        if (windowController != null) {
+            boolean isLight = (themeState == 0);
+            windowController.setAppearanceLightStatusBars(isLight);
+            windowController.setAppearanceLightNavigationBars(isLight);
+        }
     }
 
     // Forces a dialog to expand to 90% of the screen width for a clean, non-congested look
@@ -140,7 +254,8 @@ public class TextPadActivity extends AppCompatActivity {
     }
 
     private void toggleMenu(boolean open, TextView btn) {
-        if (isMenuOpen == open) return; isMenuOpen = open;
+        if (isMenuOpen == open) return;
+        isMenuOpen = open;
         btn.animate().scaleX(0.85f).scaleY(0.85f).setDuration(120).setInterpolator(new DecelerateInterpolator()).withEndAction(() -> {
             btn.setText(open ? "Close" : "Menu");
             btn.animate().scaleX(1.10f).scaleY(1.10f).setDuration(150).setInterpolator(new AccelerateDecelerateInterpolator()).withEndAction(() -> {
@@ -148,25 +263,72 @@ public class TextPadActivity extends AppCompatActivity {
             }).start();
         }).start();
 
-        if (open) { flowerMenuLayout.setVisibility(View.VISIBLE);
-            for (int i = 0; i < flowerMenuLayout.getChildCount(); i++) { View c = flowerMenuLayout.getChildAt(i); c.setTranslationY(100f); c.setTranslationX(40f); c.setAlpha(0f); c.setScaleX(0.5f); c.setScaleY(0.5f);
-                c.animate().translationY(0f).translationX(0f).alpha(1f).scaleX(1f).scaleY(1f).setDuration(350).setStartDelay((flowerMenuLayout.getChildCount() - i - 1) * 35L).setInterpolator(new OvershootInterpolator(1.2f)).start(); }
+        if (open) {
+            flowerMenuLayout.setVisibility(View.VISIBLE);
+            for (int i = 0; i < flowerMenuLayout.getChildCount(); i++) {
+                View c = flowerMenuLayout.getChildAt(i);
+                c.setTranslationY(100f);
+                c.setTranslationX(40f);
+                c.setAlpha(0f);
+                c.setScaleX(0.5f);
+                c.setScaleY(0.5f);
+                c.animate().translationY(0f).translationX(0f).alpha(1f).scaleX(1f).scaleY(1f)
+                        .setDuration(350)
+                        .setStartDelay((flowerMenuLayout.getChildCount() - i - 1) * 35L)
+                        .setInterpolator(new OvershootInterpolator(1.2f))
+                        .start();
+            }
         } else {
-            for (int i = 0; i < flowerMenuLayout.getChildCount(); i++) { View c = flowerMenuLayout.getChildAt(i);
-                c.animate().translationY(100f).translationX(40f).alpha(0f).scaleX(0.5f).scaleY(0.5f).setDuration(250).setStartDelay(i * 25L).setInterpolator(new android.view.animation.AnticipateInterpolator(1.2f)).withEndAction(() -> { if (c == flowerMenuLayout.getChildAt(flowerMenuLayout.getChildCount() - 1)) flowerMenuLayout.setVisibility(View.GONE); }).start(); }
+            for (int i = 0; i < flowerMenuLayout.getChildCount(); i++) {
+                View c = flowerMenuLayout.getChildAt(i);
+                c.animate().translationY(100f).translationX(40f).alpha(0f).scaleX(0.5f).scaleY(0.5f)
+                        .setDuration(250)
+                        .setStartDelay(i * 25L)
+                        .setInterpolator(new android.view.animation.AnticipateInterpolator(1.2f))
+                        .withEndAction(() -> {
+                            if (c == flowerMenuLayout.getChildAt(flowerMenuLayout.getChildCount() - 1)) {
+                                flowerMenuLayout.setVisibility(View.GONE);
+                            }
+                        }).start();
+            }
         }
     }
 
     private void updateTheme() {
-        int bgColor = isDarkTheme ? Color.parseColor("#1E1E1E") : Color.parseColor("#F5F5F5");
+        isDarkTheme = (themeState != 0);
+        int bgColor = getThemeBackgroundColor();
         int textColor = isDarkTheme ? Color.parseColor("#D4D4D4") : Color.parseColor("#333333");
         int hintColor = isDarkTheme ? Color.parseColor("#6A9955") : Color.parseColor("#008000");
 
-        int btnColor = isDarkTheme ? Color.parseColor("#E62C2C2E") : Color.parseColor("#E6FFFFFF");
+        int btnColor;
+        if (themeState == 0) {
+            btnColor = Color.parseColor("#E6F2F2F7");
+        } else if (themeState == 1) {
+            btnColor = Color.parseColor("#E62C2C2E");
+        } else {
+            btnColor = Color.parseColor("#E6161618");
+        }
         int btnText = isDarkTheme ? Color.WHITE : Color.BLACK;
 
-        findViewById(R.id.textPadRoot).setBackgroundColor(bgColor);
-        ideEditText.setTextColor(textColor); ideEditText.setHintTextColor(hintColor);
+        // Sync Window & Status Bar first
+        applyWindowAndStatusBarTheme();
+
+        // Sync Root & Make Scroll/EditText containers transparent so the entire surface matches the status bar
+        View root = findViewById(R.id.textPadRoot);
+        if (root != null) {
+            root.setBackgroundColor(bgColor);
+        }
+        if (textScrollView != null) {
+            textScrollView.setBackgroundColor(Color.TRANSPARENT);
+        }
+        if (ideEditText != null) {
+            ideEditText.setBackgroundColor(Color.TRANSPARENT);
+            if (ideEditText.getParent() instanceof View) {
+                ((View) ideEditText.getParent()).setBackgroundColor(Color.TRANSPARENT);
+            }
+            ideEditText.setTextColor(textColor);
+            ideEditText.setHintTextColor(hintColor);
+        }
 
         if (loadingOverlay != null) {
             GradientDrawable ldGd = new GradientDrawable();
@@ -179,65 +341,105 @@ public class TextPadActivity extends AppCompatActivity {
             GradientDrawable refGd = new GradientDrawable();
             refGd.setColor(btnColor);
             refGd.setShape(GradientDrawable.OVAL);
+            if (themeState == 2) {
+                refGd.setStroke(2, Color.parseColor("#333333"));
+            }
             btnRefreshHdl.setBackground(refGd);
             btnRefreshHdl.setTextColor(btnText);
         }
 
-        syntaxHighlighter.updateColors(isDarkTheme);
-        syntaxHighlighter.forceRehighlight();
+        if (syntaxHighlighter != null) {
+            syntaxHighlighter.updateColors(isDarkTheme);
+            syntaxHighlighter.forceRehighlight();
+        }
 
         int[] btns = {R.id.menuHdlDet, R.id.menuSave, R.id.menuDrafts, R.id.menuTheme, R.id.menuClear, R.id.menuExit};
-        for(int id : btns) {
+        for (int id : btns) {
             TextView b = findViewById(id);
-            GradientDrawable gd = new GradientDrawable();
-            gd.setColor(btnColor);
-            gd.setCornerRadius(60f);
-            b.setBackground(gd);
-            b.setTextColor(btnText);
+            if (b != null) {
+                GradientDrawable gd = new GradientDrawable();
+                gd.setColor(btnColor);
+                gd.setCornerRadius(60f);
+                if (themeState == 2) {
+                    gd.setStroke(2, Color.parseColor("#333333"));
+                }
+                b.setBackground(gd);
+                b.setTextColor(btnText);
+            }
         }
     }
 
     private void saveTxlToFolder(String name, String content) {
-        try { ContentValues values = new ContentValues();
+        try {
+            ContentValues values = new ContentValues();
             values.put(MediaStore.MediaColumns.DISPLAY_NAME, name + ".txl");
             values.put(MediaStore.MediaColumns.MIME_TYPE, "text/plain");
             values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOCUMENTS + "/OWN's Text Pad Drafts");
             Uri uri = getContentResolver().insert(MediaStore.Files.getContentUri("external"), values);
-            if(uri != null) { OutputStream out = getContentResolver().openOutputStream(uri); out.write(content.getBytes()); out.close(); }
-        } catch (Exception e) { e.printStackTrace(); }
+            if (uri != null) {
+                OutputStream out = getContentResolver().openOutputStream(uri);
+                out.write(content.getBytes());
+                out.close();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     private void deleteTxlFromFolder(String name) {
-        try { ContentResolver r = getContentResolver(); Uri uri = MediaStore.Files.getContentUri("external");
+        try {
+            ContentResolver r = getContentResolver();
+            Uri uri = MediaStore.Files.getContentUri("external");
             Cursor c = r.query(uri, new String[]{MediaStore.MediaColumns._ID}, MediaStore.MediaColumns.DISPLAY_NAME + "=?", new String[]{name + ".txl"}, null);
-            if (c != null) { while (c.moveToNext()) { r.delete(android.content.ContentUris.withAppendedId(uri, c.getLong(c.getColumnIndexOrThrow(MediaStore.MediaColumns._ID))), null, null); } c.close(); }
-        } catch (Exception e) { e.printStackTrace(); }
+            if (c != null) {
+                while (c.moveToNext()) {
+                    r.delete(android.content.ContentUris.withAppendedId(uri, c.getLong(c.getColumnIndexOrThrow(MediaStore.MediaColumns._ID))), null, null);
+                }
+                c.close();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     private void showHdlUsageDialog() {
         Dialog d = new Dialog(this);
         d.requestWindowFeature(Window.FEATURE_NO_TITLE);
         d.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-        LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(60,60,60,60);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(60, 60, 60, 60);
 
         GradientDrawable gd = new GradientDrawable();
-        gd.setColor(isDarkTheme ? Color.parseColor("#E61C1C1E") : Color.parseColor("#E6F2F2F7"));
-        gd.setCornerRadius(60f); root.setBackground(gd);
+        gd.setColor(getDialogBackgroundColor());
+        gd.setCornerRadius(60f);
+        if (themeState == 2) gd.setStroke(2, Color.parseColor("#2C2C2E"));
+        root.setBackground(gd);
 
         TextView title = new TextView(this);
-        title.setText("Usage"); title.setTextSize(20f); title.setTextColor(isDarkTheme?Color.WHITE:Color.BLACK); title.setTypeface(null, Typeface.BOLD);
+        title.setText("Usage");
+        title.setTextSize(20f);
+        title.setTextColor(isDarkTheme ? Color.WHITE : Color.BLACK);
+        title.setTypeface(null, Typeface.BOLD);
         root.addView(title);
 
         TextView msg = new TextView(this);
         msg.setText("This utility is designed specifically for detecting and dynamically highlighting Verilog and SystemVerilog HDL.\n\nCode coloring automatically tracks your screen as you type. If you scroll to a new massive section, simply tap the Circular '↻' button in the top right to instantly force a render.");
         msg.setTextColor(isDarkTheme ? Color.parseColor("#CCCCCC") : Color.parseColor("#555555"));
-        msg.setPadding(0,20,0,40); msg.setLineSpacing(0, 1.2f);
+        msg.setPadding(0, 20, 0, 40);
+        msg.setLineSpacing(0, 1.2f);
         root.addView(msg);
 
-        TextView btnOk = new TextView(this); btnOk.setText("Understood"); btnOk.setGravity(Gravity.CENTER);
+        TextView btnOk = new TextView(this);
+        btnOk.setText("Understood");
+        btnOk.setGravity(Gravity.CENTER);
         btnOk.setPadding(0, 30, 0, 30);
-        GradientDrawable btnBg = new GradientDrawable(); btnBg.setColor(Color.parseColor("#4A90E2")); btnBg.setCornerRadius(30f);
-        btnOk.setBackground(btnBg); btnOk.setTextColor(Color.WHITE); btnOk.setOnClickListener(v->d.dismiss());
+        GradientDrawable btnBg = new GradientDrawable();
+        btnBg.setColor(Color.parseColor("#4A90E2"));
+        btnBg.setCornerRadius(30f);
+        btnOk.setBackground(btnBg);
+        btnOk.setTextColor(Color.WHITE);
+        btnOk.setOnClickListener(v -> d.dismiss());
         root.addView(btnOk);
 
         d.setContentView(root);
@@ -246,20 +448,65 @@ public class TextPadActivity extends AppCompatActivity {
     }
 
     private void showExitConfirmationDialog() {
-        Dialog d = new Dialog(this); d.requestWindowFeature(Window.FEATURE_NO_TITLE); d.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-        LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(60,60,60,60);
-        GradientDrawable gd = new GradientDrawable(); gd.setColor(isDarkTheme ? Color.parseColor("#E61C1C1E") : Color.parseColor("#E6F2F2F7")); gd.setCornerRadius(60f); root.setBackground(gd);
-        TextView title = new TextView(this); title.setText("Exit Text Pad?"); title.setTextSize(20f); title.setTextColor(isDarkTheme?Color.WHITE:Color.BLACK); title.setTypeface(null, Typeface.BOLD); root.addView(title);
-        TextView msg = new TextView(this); msg.setText("Are you sure? Unsaved code will be lost."); msg.setTextColor(isDarkTheme ? Color.parseColor("#CCCCCC") : Color.parseColor("#555555")); msg.setPadding(0,20,0,40); root.addView(msg);
-        LinearLayout btnLayout = new LinearLayout(this); btnLayout.setOrientation(LinearLayout.HORIZONTAL);
+        Dialog d = new Dialog(this);
+        d.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        d.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(60, 60, 60, 60);
 
-        TextView btnNo = new TextView(this); btnNo.setText("No"); btnNo.setGravity(Gravity.CENTER); btnNo.setPadding(0, 30, 0, 30);
-        GradientDrawable noBg = new GradientDrawable(); noBg.setColor(Color.GRAY); noBg.setCornerRadius(30f); btnNo.setBackground(noBg); btnNo.setTextColor(Color.WHITE); btnNo.setOnClickListener(v->d.dismiss());
+        GradientDrawable gd = new GradientDrawable();
+        gd.setColor(getDialogBackgroundColor());
+        gd.setCornerRadius(60f);
+        if (themeState == 2) gd.setStroke(2, Color.parseColor("#2C2C2E"));
+        root.setBackground(gd);
 
-        TextView btnYes = new TextView(this); btnYes.setText("Yes"); btnYes.setGravity(Gravity.CENTER); btnYes.setPadding(0, 30, 0, 30);
-        GradientDrawable yesBg = new GradientDrawable(); yesBg.setColor(Color.parseColor("#FF3B30")); yesBg.setCornerRadius(30f); btnYes.setBackground(yesBg); btnYes.setTextColor(Color.WHITE); btnYes.setOnClickListener(v->{ d.dismiss(); finish(); });
+        TextView title = new TextView(this);
+        title.setText("Exit Text Pad?");
+        title.setTextSize(20f);
+        title.setTextColor(isDarkTheme ? Color.WHITE : Color.BLACK);
+        title.setTypeface(null, Typeface.BOLD);
+        root.addView(title);
 
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f); p.setMargins(10,0,10,0); btnLayout.addView(btnNo, p); btnLayout.addView(btnYes, p); root.addView(btnLayout);
+        TextView msg = new TextView(this);
+        msg.setText("Are you sure? Unsaved code will be lost.");
+        msg.setTextColor(isDarkTheme ? Color.parseColor("#CCCCCC") : Color.parseColor("#555555"));
+        msg.setPadding(0, 20, 0, 40);
+        root.addView(msg);
+
+        LinearLayout btnLayout = new LinearLayout(this);
+        btnLayout.setOrientation(LinearLayout.HORIZONTAL);
+
+        TextView btnNo = new TextView(this);
+        btnNo.setText("No");
+        btnNo.setGravity(Gravity.CENTER);
+        btnNo.setPadding(0, 30, 0, 30);
+        GradientDrawable noBg = new GradientDrawable();
+        noBg.setColor(Color.GRAY);
+        noBg.setCornerRadius(30f);
+        btnNo.setBackground(noBg);
+        btnNo.setTextColor(Color.WHITE);
+        btnNo.setOnClickListener(v -> d.dismiss());
+
+        TextView btnYes = new TextView(this);
+        btnYes.setText("Yes");
+        btnYes.setGravity(Gravity.CENTER);
+        btnYes.setPadding(0, 30, 0, 30);
+        GradientDrawable yesBg = new GradientDrawable();
+        yesBg.setColor(Color.parseColor("#FF3B30"));
+        yesBg.setCornerRadius(30f);
+        btnYes.setBackground(yesBg);
+        btnYes.setTextColor(Color.WHITE);
+        btnYes.setOnClickListener(v -> {
+            d.dismiss();
+            finish();
+        });
+
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        p.setMargins(10, 0, 10, 0);
+        btnLayout.addView(btnNo, p);
+        btnLayout.addView(btnYes, p);
+        root.addView(btnLayout);
 
         d.setContentView(root);
         d.show();
@@ -267,29 +514,81 @@ public class TextPadActivity extends AppCompatActivity {
     }
 
     private void showSaveDraftDialog() {
-        Dialog d = new Dialog(this); d.requestWindowFeature(Window.FEATURE_NO_TITLE); d.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-        LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(60,60,60,60);
-        GradientDrawable gd = new GradientDrawable(); gd.setColor(isDarkTheme ? Color.parseColor("#E61C1C1E") : Color.parseColor("#E6F2F2F7")); gd.setCornerRadius(60f); root.setBackground(gd);
-        TextView title = new TextView(this); title.setText("Save .txl Document"); title.setTextSize(20f); title.setTextColor(isDarkTheme?Color.WHITE:Color.BLACK); title.setTypeface(null, Typeface.BOLD); root.addView(title);
-        EditText input = new EditText(this); input.setHint("Enter document name..."); input.setHintTextColor(Color.GRAY); input.setTextColor(isDarkTheme?Color.WHITE:Color.BLACK);
-        GradientDrawable inputBg = new GradientDrawable(); inputBg.setColor(isDarkTheme ? Color.parseColor("#3A3A3C") : Color.parseColor("#FFFFFF")); inputBg.setCornerRadius(20f); input.setBackground(inputBg); input.setPadding(30,30,30,30);
-        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); ip.setMargins(0,30,0,30); root.addView(input, ip);
-        LinearLayout btnLayout = new LinearLayout(this); btnLayout.setOrientation(LinearLayout.HORIZONTAL);
+        Dialog d = new Dialog(this);
+        d.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        d.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(60, 60, 60, 60);
 
-        TextView btnCancel = new TextView(this); btnCancel.setText("Cancel"); btnCancel.setGravity(Gravity.CENTER); btnCancel.setPadding(0, 30, 0, 30);
-        GradientDrawable cBg = new GradientDrawable(); cBg.setColor(Color.GRAY); cBg.setCornerRadius(30f); btnCancel.setBackground(cBg); btnCancel.setTextColor(Color.WHITE); btnCancel.setOnClickListener(v->d.dismiss());
+        GradientDrawable gd = new GradientDrawable();
+        gd.setColor(getDialogBackgroundColor());
+        gd.setCornerRadius(60f);
+        if (themeState == 2) gd.setStroke(2, Color.parseColor("#2C2C2E"));
+        root.setBackground(gd);
 
-        TextView btnSave = new TextView(this); btnSave.setText("Save"); btnSave.setGravity(Gravity.CENTER); btnSave.setPadding(0, 30, 0, 30);
-        GradientDrawable sBg = new GradientDrawable(); sBg.setColor(Color.parseColor("#4A90E2")); sBg.setCornerRadius(30f); btnSave.setBackground(sBg); btnSave.setTextColor(Color.WHITE);
+        TextView title = new TextView(this);
+        title.setText("Save .txl Document");
+        title.setTextSize(20f);
+        title.setTextColor(isDarkTheme ? Color.WHITE : Color.BLACK);
+        title.setTypeface(null, Typeface.BOLD);
+        root.addView(title);
 
-        btnSave.setOnClickListener(v->{
-            String n = input.getText().toString().trim(); if(n.isEmpty()) n = "Doc_" + System.currentTimeMillis();
+        EditText input = new EditText(this);
+        input.setHint("Enter document name...");
+        input.setHintTextColor(Color.GRAY);
+        input.setTextColor(isDarkTheme ? Color.WHITE : Color.BLACK);
+        GradientDrawable inputBg = new GradientDrawable();
+        inputBg.setColor(getCardBackgroundColor());
+        inputBg.setCornerRadius(20f);
+        input.setBackground(inputBg);
+        input.setPadding(30, 30, 30, 30);
+        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        ip.setMargins(0, 30, 0, 30);
+        root.addView(input, ip);
+
+        LinearLayout btnLayout = new LinearLayout(this);
+        btnLayout.setOrientation(LinearLayout.HORIZONTAL);
+
+        TextView btnCancel = new TextView(this);
+        btnCancel.setText("Cancel");
+        btnCancel.setGravity(Gravity.CENTER);
+        btnCancel.setPadding(0, 30, 0, 30);
+        GradientDrawable cBg = new GradientDrawable();
+        cBg.setColor(Color.GRAY);
+        cBg.setCornerRadius(30f);
+        btnCancel.setBackground(cBg);
+        btnCancel.setTextColor(Color.WHITE);
+        btnCancel.setOnClickListener(v -> d.dismiss());
+
+        TextView btnSave = new TextView(this);
+        btnSave.setText("Save");
+        btnSave.setGravity(Gravity.CENTER);
+        btnSave.setPadding(0, 30, 0, 30);
+        GradientDrawable sBg = new GradientDrawable();
+        sBg.setColor(Color.parseColor("#4A90E2"));
+        sBg.setCornerRadius(30f);
+        btnSave.setBackground(sBg);
+        btnSave.setTextColor(Color.WHITE);
+
+        btnSave.setOnClickListener(v -> {
+            String n = input.getText().toString().trim();
+            if (n.isEmpty()) n = "Doc_" + System.currentTimeMillis();
             String code = ideEditText.getText().toString();
-            prefs.edit().putString("textpad_draft_"+n, code).apply();
-            Set<String> s = new HashSet<>(prefs.getStringSet("textpad_draft_names", new HashSet<>())); s.add(n); prefs.edit().putStringSet("textpad_draft_names", s).apply();
-            saveTxlToFolder(n, code); Toast.makeText(this,"Saved .txl to Storage!",Toast.LENGTH_SHORT).show(); d.dismiss();
+            prefs.edit().putString("textpad_draft_" + n, code).apply();
+            Set<String> s = new HashSet<>(prefs.getStringSet("textpad_draft_names", new HashSet<>()));
+            s.add(n);
+            prefs.edit().putStringSet("textpad_draft_names", s).apply();
+            saveTxlToFolder(n, code);
+            Toast.makeText(this, "Saved .txl to Storage!", Toast.LENGTH_SHORT).show();
+            d.dismiss();
         });
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f); p.setMargins(10,0,10,0); btnLayout.addView(btnCancel, p); btnLayout.addView(btnSave, p); root.addView(btnLayout);
+
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        p.setMargins(10, 0, 10, 0);
+        btnLayout.addView(btnCancel, p);
+        btnLayout.addView(btnSave, p);
+        root.addView(btnLayout);
 
         d.setContentView(root);
         d.show();
@@ -297,42 +596,109 @@ public class TextPadActivity extends AppCompatActivity {
     }
 
     private void showDraftsGalleryDialog() {
-        Dialog d = new Dialog(this); d.requestWindowFeature(Window.FEATURE_NO_TITLE); d.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-        LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(60,60,60,60);
-        GradientDrawable gd = new GradientDrawable(); gd.setColor(isDarkTheme ? Color.parseColor("#E61C1C1E") : Color.parseColor("#E6F2F2F7")); gd.setCornerRadius(60f); root.setBackground(gd);
-        TextView title = new TextView(this); title.setText("Documents (.txl)"); title.setTextSize(20f); title.setTextColor(isDarkTheme?Color.WHITE:Color.BLACK); title.setTypeface(null, Typeface.BOLD); title.setPadding(0,0,0,40); root.addView(title);
-        ScrollView sv = new ScrollView(this); LinearLayout list = new LinearLayout(this); list.setOrientation(LinearLayout.VERTICAL); Set<String> names = new HashSet<>(prefs.getStringSet("textpad_draft_names", new HashSet<>()));
-        if(names.isEmpty()){ TextView empty = new TextView(this); empty.setText("No .txl documents saved."); empty.setTextColor(Color.GRAY); list.addView(empty); }
-        else { for(String n : names){
-            LinearLayout row = new LinearLayout(this); row.setOrientation(LinearLayout.HORIZONTAL);
-            LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); rowLp.setMargins(0,0,0,20);
+        Dialog d = new Dialog(this);
+        d.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        d.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(60, 60, 60, 60);
 
-            // Re-structured for spaciousness and text-truncation on long filenames
-            TextView b = new TextView(this);
-            b.setText(n + ".txl");
-            b.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
-            b.setPadding(40, 30, 20, 30);
-            b.setSingleLine(true);
-            b.setEllipsize(TextUtils.TruncateAt.END);
+        GradientDrawable gd = new GradientDrawable();
+        gd.setColor(getDialogBackgroundColor());
+        gd.setCornerRadius(60f);
+        if (themeState == 2) gd.setStroke(2, Color.parseColor("#2C2C2E"));
+        root.setBackground(gd);
 
-            GradientDrawable bBg = new GradientDrawable(); bBg.setColor(isDarkTheme?Color.parseColor("#3A3A3C"):Color.parseColor("#FFFFFF")); bBg.setCornerRadius(30f); b.setBackground(bBg); b.setTextColor(isDarkTheme?Color.WHITE:Color.BLACK);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f); lp.setMarginEnd(16);
-            b.setOnClickListener(v->{ ideEditText.setText(prefs.getString("textpad_draft_"+n,"")); Toast.makeText(this,"Loaded "+n+".txl",Toast.LENGTH_SHORT).show(); d.dismiss(); });
+        TextView title = new TextView(this);
+        title.setText("Documents (.txl)");
+        title.setTextSize(20f);
+        title.setTextColor(isDarkTheme ? Color.WHITE : Color.BLACK);
+        title.setTypeface(null, Typeface.BOLD);
+        title.setPadding(0, 0, 0, 40);
+        root.addView(title);
 
-            TextView del = new TextView(this); del.setText("X"); del.setGravity(Gravity.CENTER); del.setPadding(0, 30, 0, 30);
-            GradientDrawable dBg = new GradientDrawable(); dBg.setColor(Color.parseColor("#FF3B30")); dBg.setCornerRadius(30f); del.setBackground(dBg); del.setTextColor(Color.WHITE);
-            LinearLayout.LayoutParams dLp = new LinearLayout.LayoutParams(120, LinearLayout.LayoutParams.WRAP_CONTENT);
-            del.setOnClickListener(v->{
-                prefs.edit().remove("textpad_draft_"+n).apply(); Set<String> updated = new HashSet<>(prefs.getStringSet("textpad_draft_names", new HashSet<>())); updated.remove(n); prefs.edit().putStringSet("textpad_draft_names", updated).apply(); list.removeView(row); deleteTxlFromFolder(n);
-                if(updated.isEmpty()){ TextView empty = new TextView(this); empty.setText("No documents saved."); empty.setTextColor(Color.GRAY); list.addView(empty); } Toast.makeText(this,"Document Deleted",Toast.LENGTH_SHORT).show();
-            });
-            row.addView(b, lp); row.addView(del, dLp); list.addView(row, rowLp); }
+        ScrollView sv = new ScrollView(this);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        Set<String> names = new HashSet<>(prefs.getStringSet("textpad_draft_names", new HashSet<>()));
+        if (names.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText("No .txl documents saved.");
+            empty.setTextColor(Color.GRAY);
+            list.addView(empty);
+        } else {
+            for (String n : names) {
+                LinearLayout row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                rowLp.setMargins(0, 0, 0, 20);
+
+                TextView b = new TextView(this);
+                b.setText(n + ".txl");
+                b.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+                b.setPadding(40, 30, 20, 30);
+                b.setSingleLine(true);
+                b.setEllipsize(TextUtils.TruncateAt.END);
+
+                GradientDrawable bBg = new GradientDrawable();
+                bBg.setColor(getCardBackgroundColor());
+                bBg.setCornerRadius(30f);
+                b.setBackground(bBg);
+                b.setTextColor(isDarkTheme ? Color.WHITE : Color.BLACK);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                lp.setMarginEnd(16);
+                b.setOnClickListener(v -> {
+                    ideEditText.setText(prefs.getString("textpad_draft_" + n, ""));
+                    Toast.makeText(this, "Loaded " + n + ".txl", Toast.LENGTH_SHORT).show();
+                    d.dismiss();
+                });
+
+                TextView del = new TextView(this);
+                del.setText("X");
+                del.setGravity(Gravity.CENTER);
+                del.setPadding(0, 30, 0, 30);
+                GradientDrawable dBg = new GradientDrawable();
+                dBg.setColor(Color.parseColor("#FF3B30"));
+                dBg.setCornerRadius(30f);
+                del.setBackground(dBg);
+                del.setTextColor(Color.WHITE);
+                LinearLayout.LayoutParams dLp = new LinearLayout.LayoutParams(120, LinearLayout.LayoutParams.WRAP_CONTENT);
+                del.setOnClickListener(v -> {
+                    prefs.edit().remove("textpad_draft_" + n).apply();
+                    Set<String> updated = new HashSet<>(prefs.getStringSet("textpad_draft_names", new HashSet<>()));
+                    updated.remove(n);
+                    prefs.edit().putStringSet("textpad_draft_names", updated).apply();
+                    list.removeView(row);
+                    deleteTxlFromFolder(n);
+                    if (updated.isEmpty()) {
+                        TextView empty = new TextView(this);
+                        empty.setText("No documents saved.");
+                        empty.setTextColor(Color.GRAY);
+                        list.addView(empty);
+                    }
+                    Toast.makeText(this, "Document Deleted", Toast.LENGTH_SHORT).show();
+                });
+                row.addView(b, lp);
+                row.addView(del, dLp);
+                list.addView(row, rowLp);
+            }
         }
-        sv.addView(list); root.addView(sv);
-        TextView btnClose = new TextView(this); btnClose.setText("Close"); btnClose.setGravity(Gravity.CENTER); btnClose.setPadding(0, 30, 0, 30);
-        GradientDrawable cBg = new GradientDrawable(); cBg.setColor(Color.parseColor("#FF3B30")); cBg.setCornerRadius(30f);
-        btnClose.setBackground(cBg); btnClose.setTextColor(Color.WHITE); btnClose.setOnClickListener(v->d.dismiss());
-        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); clp.setMargins(0,40,0,0); root.addView(btnClose, clp);
+        sv.addView(list);
+        root.addView(sv);
+
+        TextView btnClose = new TextView(this);
+        btnClose.setText("Close");
+        btnClose.setGravity(Gravity.CENTER);
+        btnClose.setPadding(0, 30, 0, 30);
+        GradientDrawable cBg = new GradientDrawable();
+        cBg.setColor(Color.parseColor("#FF3B30"));
+        cBg.setCornerRadius(30f);
+        btnClose.setBackground(cBg);
+        btnClose.setTextColor(Color.WHITE);
+        btnClose.setOnClickListener(v -> d.dismiss());
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        clp.setMargins(0, 40, 0, 0);
+        root.addView(btnClose, clp);
 
         d.setContentView(root);
         d.show();
@@ -436,13 +802,25 @@ public class TextPadActivity extends AppCompatActivity {
                 }
 
                 Matcher mk = PATTERN_KEYWORD.matcher(textToParse);
-                while (mk.find()) { if (!isProtected.get(mk.start())) spansToApply.add(new SpanDef(mk.start() + finalStart, mk.end() + finalStart, colorKeyword)); }
+                while (mk.find()) {
+                    if (!isProtected.get(mk.start())) {
+                        spansToApply.add(new SpanDef(mk.start() + finalStart, mk.end() + finalStart, colorKeyword));
+                    }
+                }
 
                 Matcher mt = PATTERN_TYPES.matcher(textToParse);
-                while (mt.find()) { if (!isProtected.get(mt.start())) spansToApply.add(new SpanDef(mt.start() + finalStart, mt.end() + finalStart, colorType)); }
+                while (mt.find()) {
+                    if (!isProtected.get(mt.start())) {
+                        spansToApply.add(new SpanDef(mt.start() + finalStart, mt.end() + finalStart, colorType));
+                    }
+                }
 
                 Matcher mn = PATTERN_NUMBERS.matcher(textToParse);
-                while (mn.find()) { if (!isProtected.get(mn.start())) spansToApply.add(new SpanDef(mn.start() + finalStart, mn.end() + finalStart, colorNumber)); }
+                while (mn.find()) {
+                    if (!isProtected.get(mn.start())) {
+                        spansToApply.add(new SpanDef(mn.start() + finalStart, mn.end() + finalStart, colorNumber));
+                    }
+                }
 
                 handler.post(() -> {
                     if (currentParseId != parseId || !isHdlDetEnabled) return;
@@ -473,7 +851,9 @@ public class TextPadActivity extends AppCompatActivity {
 
         private void clearSpans(Editable s, int start, int end) {
             ForegroundColorSpan[] spans = s.getSpans(start, end, ForegroundColorSpan.class);
-            for (ForegroundColorSpan span : spans) { s.removeSpan(span); }
+            for (ForegroundColorSpan span : spans) {
+                s.removeSpan(span);
+            }
         }
     }
 }
