@@ -68,7 +68,7 @@
 
                 <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#33888888" android:layout_marginBottom="12dp"/>
 
-                <TextView android:id="@+id/tvSmoothLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Smooth Edge Level (0 - 5)" android:textSize="13sp" android:textStyle="bold" android:layout_marginBottom="6dp"/>
+                <TextView android:id="@+id/tvSmoothLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Smooth Edge Level" android:textSize="13sp" android:textStyle="bold" android:layout_marginBottom="6dp"/>
                 <com.google.android.material.slider.Slider android:id="@+id/slBgSmooth" android:layout_width="match_parent" android:layout_height="wrap_content" android:valueFrom="0.0" android:valueTo="5.0" android:stepSize="1.0" android:value="0.0" />
             </LinearLayout>
         </ScrollView>
