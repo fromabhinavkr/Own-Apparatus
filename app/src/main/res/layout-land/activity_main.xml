@@ -90,7 +90,7 @@
                 android:layout_height="wrap_content"
                 android:background="@drawable/modern_button"
                 android:orientation="horizontal"
-                android:paddingHorizontal="12dp"
+                android:paddingHorizontal="10dp"
                 android:paddingVertical="6dp"
                 android:gravity="center_vertical"
                 android:elevation="0dp">
@@ -114,7 +114,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:layout_marginStart="12dp"
+                    android:layout_marginStart="10dp"
                     android:gravity="center">
 
                     <LinearLayout
@@ -159,6 +159,38 @@
                             android:includeFontPadding="false" />
                     </LinearLayout>
                 </LinearLayout>
+
+                <!-- Inner Pill for Network Speed ON/OFF Switch -->
+                <LinearLayout
+                    android:id="@+id/net_speed_pill"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:paddingHorizontal="8dp"
+                    android:paddingVertical="4dp"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:elevation="0dp">
+
+                    <TextView
+                        android:id="@+id/tvNetSpeedLbl"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="NET OFF"
+                        android:textSize="8sp"
+                        android:textStyle="bold"
+                        android:includeFontPadding="false" />
+
+                    <Switch
+                        android:id="@+id/switch_net_speed"
+                        android:layout_width="wrap_content"
+                        android:layout_height="20dp"
+                        android:scaleX="0.75"
+                        android:scaleY="0.75" />
+                </LinearLayout>
+
             </LinearLayout>
         </LinearLayout>
 

@@ -24,8 +24,8 @@
             android:layout_height="wrap_content"
             android:background="@drawable/modern_button"
             android:orientation="horizontal"
-            android:paddingHorizontal="16dp"
-            android:paddingVertical="12dp"
+            android:paddingHorizontal="14dp"
+            android:paddingVertical="10dp"
             android:gravity="center_vertical"
             android:elevation="0dp">
 
@@ -52,7 +52,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:layout_marginStart="16dp"
+                android:layout_marginStart="12dp"
                 android:gravity="center">
 
                 <!-- Inner Pill for Time -->
@@ -100,8 +100,40 @@
                         android:textStyle="bold"
                         android:includeFontPadding="false" />
                 </LinearLayout>
-
             </LinearLayout>
+
+            <!-- Inner Pill for Network Speed ON/OFF Switch -->
+            <LinearLayout
+                android:id="@+id/net_speed_pill"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:paddingHorizontal="10dp"
+                android:paddingVertical="6dp"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:clickable="true"
+                android:focusable="true"
+                android:elevation="0dp">
+
+                <TextView
+                    android:id="@+id/tvNetSpeedLbl"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="NET OFF"
+                    android:textSize="9sp"
+                    android:textStyle="bold"
+                    android:includeFontPadding="false" />
+
+                <Switch
+                    android:id="@+id/switch_net_speed"
+                    android:layout_width="wrap_content"
+                    android:layout_height="24dp"
+                    android:layout_marginTop="2dp"
+                    android:scaleX="0.85"
+                    android:scaleY="0.85" />
+            </LinearLayout>
+
         </LinearLayout>
     </LinearLayout>
 
@@ -131,7 +163,6 @@
         android:paddingBottom="16dp"
         android:fillViewport="true">
 
-        <!-- Grid Directly inside ScrollView for perfect height matching -->
         <GridLayout
             android:id="@+id/tabsGrid"
             android:layout_width="match_parent"
@@ -141,7 +172,6 @@
             android:alignmentMode="alignMargins">
 
             <!-- CARD 1: Widgets -->
-            <!-- PERFECT FLEX LAYOUT: Height 0dp, Row/Column Weights = 1 -->
             <LinearLayout
                 android:id="@+id/btnPlaceWidget"
                 android:layout_width="0dp"
@@ -158,7 +188,6 @@
                 android:paddingBottom="16dp"
                 android:gravity="center">
 
-                <!-- Image takes remaining space dynamically -->
                 <ImageView
                     android:id="@+id/ivWidgetIcon"
                     android:layout_width="match_parent"
@@ -169,7 +198,6 @@
                     android:layout_marginBottom="6dp"
                     android:src="@drawable/icon_main_widgets" />
 
-                <!-- Text stays anchored to the bottom -->
                 <TextView
                     android:id="@+id/tvWidgetText"
                     android:layout_width="match_parent"

@@ -12,8 +12,10 @@
         </intent>
     </queries>
 
-    <!-- Required for the Private Browser to access the web & Haptic feedback -->
+    <!-- Required for the Private Browser to access the web, Network Speed Detector & Haptic feedback -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <!-- Camera hardware feature tag to prevent unsupported device crashes -->
@@ -482,6 +484,19 @@
             tools:targetApi="upside_down_cake"
             tools:ignore="ForegroundServiceType">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Widget sensor tracking"/>
+        </service>
+
+        <!-- Real-Time Status Bar Network Speed Detector Service -->
+        <service
+            android:name=".NetworkSpeedService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            tools:targetApi="upside_down_cake"
+            tools:ignore="ForegroundServiceType">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Real-time network speed monitoring in status bar" />
         </service>
 
     </application>
