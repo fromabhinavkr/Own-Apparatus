@@ -48,7 +48,6 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.RelativeLayout;
 import android.widget.ScrollView;
-import android.widget.Switch;
 import android.widget.TextClock;
 import android.widget.TextView;
 import android.widget.TimePicker;
@@ -81,8 +80,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String PREF_NET_SPEED = "net_speed_enabled";
 
     private TextClock tvTime;
-    private Switch switchNetSpeed;
-    private TextView tvNetSpeedLbl;
+    private ImageButton netSpeedToggleBtn;
     private int currentThemeTextColor;
     private ValueAnimator gradientAnimator;
 
@@ -130,12 +128,11 @@ public class MainActivity extends AppCompatActivity {
         FrameLayout themeTogglePill = findViewById(R.id.theme_toggle_pill);
         LinearLayout timePill = findViewById(R.id.time_pill);
         LinearLayout datePill = findViewById(R.id.date_pill);
-        LinearLayout netSpeedPill = findViewById(R.id.net_speed_pill);
+        FrameLayout netSpeedPill = findViewById(R.id.net_speed_pill);
 
         tvTime = findViewById(R.id.tvTime);
         TextClock tvDate = findViewById(R.id.tvDate);
-        switchNetSpeed = findViewById(R.id.switch_net_speed);
-        tvNetSpeedLbl = findViewById(R.id.tvNetSpeedLbl);
+        netSpeedToggleBtn = findViewById(R.id.btn_net_speed_toggle);
 
         if (themeState == 0) {
             themeToggleBtn.setImageResource(R.drawable.ic_sun);
@@ -239,42 +236,23 @@ public class MainActivity extends AppCompatActivity {
             datePill.setElevation(0f);
             datePill.setClipToOutline(true);
 
-            // Style Network Speed Pill for Light / Dark / AMOLED
+            // Style Network Speed Circle Pill matching Theme Toggle Pill
             if (netSpeedPill != null) {
-                GradientDrawable netPillGd = new GradientDrawable();
-                netPillGd.setCornerRadius(60f);
-                netPillGd.setColor(innerBg.getDefaultColor());
-                netSpeedPill.setBackground(netPillGd);
+                GradientDrawable netCircleGd = new GradientDrawable();
+                netCircleGd.setShape(GradientDrawable.OVAL);
+                netCircleGd.setColor(innerBg.getDefaultColor());
+                netSpeedPill.setBackground(netCircleGd);
                 netSpeedPill.setElevation(0f);
                 netSpeedPill.setClipToOutline(true);
             }
 
-            if (switchNetSpeed != null) {
-                boolean isNetOn = prefs.getBoolean(PREF_NET_SPEED, false);
-                switchNetSpeed.setOnCheckedChangeListener(null);
-                switchNetSpeed.setChecked(isNetOn);
-                styleNetSwitch(themeState, isNetOn);
-                if (isNetOn) startNetworkSpeedService();
+            boolean isNetOn = prefs.getBoolean(PREF_NET_SPEED, false);
+            styleNetIcon(themeState, isNetOn);
+            if (isNetOn) startNetworkSpeedService();
 
-                switchNetSpeed.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                    if (isChecked) {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                            switchNetSpeed.setChecked(false);
-                            styleNetSwitch(themeState, false);
-                            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NET_NOTIF);
-                            return;
-                        }
-                        prefs.edit().putBoolean(PREF_NET_SPEED, true).apply();
-                        styleNetSwitch(themeState, true);
-                        startNetworkSpeedService();
-                    } else {
-                        prefs.edit().putBoolean(PREF_NET_SPEED, false).apply();
-                        styleNetSwitch(themeState, false);
-                        stopNetworkSpeedService();
-                    }
-                });
-                if (netSpeedPill != null) netSpeedPill.setOnClickListener(v -> switchNetSpeed.toggle());
-            }
+            View.OnClickListener netClickListener = v -> showNetMonitorDialog(themeState, prefs);
+            if (netSpeedToggleBtn != null) netSpeedToggleBtn.setOnClickListener(netClickListener);
+            if (netSpeedPill != null) netSpeedPill.setOnClickListener(netClickListener);
 
             tvTime.setTextColor(currentThemeTextColor);
             tvDate.setTextColor(secondaryText);
@@ -460,21 +438,140 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // ======================================================================
-    // NETWORK SPEED DETECTOR HELPERS (Theme-Aware Switch & Service Control)
+    // NETWORK SPEED MONITOR (Theme-Aware Icon & Confirmation Dialog)
     // ======================================================================
-    private void styleNetSwitch(int themeState, boolean isChecked) {
-        int activeColor = Color.parseColor("#2ECC71");
-        int inactiveThumb = (themeState == 0) ? Color.parseColor("#999999") : Color.parseColor("#8E8E93");
-        int inactiveTrack = (themeState == 0) ? Color.parseColor("#E0E0E5") : ((themeState == 1) ? Color.parseColor("#3A3A3C") : Color.parseColor("#222224"));
+    private void styleNetIcon(int themeState, boolean isNetOn) {
+        if (netSpeedToggleBtn == null) return;
+        int activeGreen = Color.parseColor("#2ECC71");
+        int inactiveColor = (themeState == 0) ? Color.BLACK : Color.WHITE;
+        netSpeedToggleBtn.setImageResource(R.drawable.ic_networkcheck);
+        netSpeedToggleBtn.setColorFilter(isNetOn ? activeGreen : inactiveColor, PorterDuff.Mode.SRC_IN);
+    }
 
-        if (switchNetSpeed != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            switchNetSpeed.setThumbTintList(ColorStateList.valueOf(isChecked ? activeColor : inactiveThumb));
-            switchNetSpeed.setTrackTintList(ColorStateList.valueOf(isChecked ? Color.parseColor("#552ECC71") : inactiveTrack));
+    private void showNetMonitorDialog(int themeState, SharedPreferences prefs) {
+        boolean isCurrentlyOn = prefs.getBoolean(PREF_NET_SPEED, false);
+
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        int pad = dp(22);
+        root.setPadding(pad, pad, pad, dp(18));
+
+        GradientDrawable bgGd = new GradientDrawable();
+        bgGd.setCornerRadius(dp(28));
+        int dialogBg = (themeState == 0) ? Color.parseColor("#FFFFFF")
+                : ((themeState == 1) ? Color.parseColor("#2C2C2E") : Color.parseColor("#1C1C1E"));
+        bgGd.setColor(dialogBg);
+        if (themeState == 2) {
+            bgGd.setStroke(dp(1), Color.parseColor("#333336"));
         }
-        if (tvNetSpeedLbl != null) {
-            tvNetSpeedLbl.setText(isChecked ? "NET ON" : "NET OFF");
-            tvNetSpeedLbl.setTextColor(isChecked ? activeColor : ((themeState == 0) ? Color.parseColor("#666666") : Color.parseColor("#BBBBBB")));
+        root.setBackground(bgGd);
+
+        // Header Row with Icon + Title
+        LinearLayout headerRow = new LinearLayout(this);
+        headerRow.setOrientation(LinearLayout.HORIZONTAL);
+        headerRow.setGravity(Gravity.CENTER_VERTICAL);
+
+        ImageView iconView = new ImageView(this);
+        iconView.setImageResource(R.drawable.ic_networkcheck);
+        iconView.setColorFilter(Color.parseColor("#2ECC71"), PorterDuff.Mode.SRC_IN);
+        LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(dp(26), dp(26));
+        iconLp.setMarginEnd(dp(10));
+        headerRow.addView(iconView, iconLp);
+
+        TextView titleView = new TextView(this);
+        titleView.setText("Network Usage Monitor");
+        titleView.setTextSize(17f);
+        titleView.setTypeface(null, android.graphics.Typeface.BOLD);
+        titleView.setTextColor(currentThemeTextColor);
+        headerRow.addView(titleView);
+
+        root.addView(headerRow);
+
+        // Professional Description
+        TextView msgView = new TextView(this);
+        String actionText = isCurrentlyOn
+                ? "This setting is used for monitoring current network usage and real-time connection speed in the status bar.\n\nWould you like to disable network usage monitoring?"
+                : "This setting is used for monitoring current network usage and real-time connection speed in the status bar.\n\nWould you like to enable network usage monitoring?";
+        msgView.setText(actionText);
+        msgView.setTextSize(14f);
+        msgView.setLineSpacing(0f, 1.25f);
+        msgView.setTextColor((themeState == 0) ? Color.parseColor("#555555") : Color.parseColor("#BBBBBB"));
+        msgView.setPadding(0, dp(14), 0, dp(20));
+        root.addView(msgView);
+
+        // Buttons Row (Cancel & OK)
+        LinearLayout btnRow = new LinearLayout(this);
+        btnRow.setOrientation(LinearLayout.HORIZONTAL);
+        btnRow.setGravity(Gravity.END);
+
+        TextView cancelBtn = new TextView(this);
+        cancelBtn.setText("Cancel");
+        cancelBtn.setTextSize(14f);
+        cancelBtn.setTypeface(null, android.graphics.Typeface.BOLD);
+        cancelBtn.setGravity(Gravity.CENTER);
+        cancelBtn.setPadding(dp(20), dp(10), dp(20), dp(10));
+        cancelBtn.setTextColor((themeState == 0) ? Color.parseColor("#555555") : Color.parseColor("#CCCCCC"));
+
+        GradientDrawable cancelGd = new GradientDrawable();
+        cancelGd.setCornerRadius(dp(100));
+        cancelGd.setColor((themeState == 0) ? Color.parseColor("#F2F2F7") : Color.parseColor("#3A3A3C"));
+        cancelBtn.setBackground(cancelGd);
+        cancelBtn.setOnClickListener(v -> dialog.dismiss());
+
+        TextView okBtn = new TextView(this);
+        okBtn.setText("OK");
+        okBtn.setTextSize(14f);
+        okBtn.setTypeface(null, android.graphics.Typeface.BOLD);
+        okBtn.setGravity(Gravity.CENTER);
+        okBtn.setPadding(dp(26), dp(10), dp(26), dp(10));
+        okBtn.setTextColor(Color.WHITE);
+
+        GradientDrawable okGd = new GradientDrawable();
+        okGd.setCornerRadius(dp(100));
+        okGd.setColor(isCurrentlyOn ? Color.parseColor("#FF3B30") : Color.parseColor("#2ECC71"));
+        okBtn.setBackground(okGd);
+
+        LinearLayout.LayoutParams okLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        okLp.setMarginStart(dp(10));
+        okBtn.setLayoutParams(okLp);
+
+        okBtn.setOnClickListener(v -> {
+            dialog.dismiss();
+            boolean targetState = !isCurrentlyOn;
+            if (targetState) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                        && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    styleNetIcon(themeState, false);
+                    requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NET_NOTIF);
+                    return;
+                }
+                prefs.edit().putBoolean(PREF_NET_SPEED, true).apply();
+                styleNetIcon(themeState, true);
+                startNetworkSpeedService();
+            } else {
+                prefs.edit().putBoolean(PREF_NET_SPEED, false).apply();
+                styleNetIcon(themeState, false);
+                stopNetworkSpeedService();
+            }
+        });
+
+        btnRow.addView(cancelBtn);
+        btnRow.addView(okBtn);
+        root.addView(btnRow);
+
+        dialog.setContentView(root);
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            int dialogWidth = (int) (Math.min(getResources().getDisplayMetrics().widthPixels,
+                    getResources().getDisplayMetrics().heightPixels) * 0.88f);
+            dialog.getWindow().setLayout(dialogWidth, ViewGroup.LayoutParams.WRAP_CONTENT);
+            dialog.getWindow().setWindowAnimations(android.R.style.Animation_Dialog);
         }
+        dialog.show();
     }
 
     private void startNetworkSpeedService() {
@@ -495,10 +592,10 @@ public class MainActivity extends AppCompatActivity {
             int themeState = prefs.getInt("app_theme_state", 1);
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 prefs.edit().putBoolean(PREF_NET_SPEED, true).apply();
-                if (switchNetSpeed != null) switchNetSpeed.setChecked(true);
-                styleNetSwitch(themeState, true);
+                styleNetIcon(themeState, true);
                 startNetworkSpeedService();
             } else {
+                styleNetIcon(themeState, false);
                 Toast.makeText(this, "Notification permission required for status bar network speed.", Toast.LENGTH_SHORT).show();
             }
         }

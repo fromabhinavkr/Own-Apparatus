@@ -24,7 +24,7 @@
     <string name="tools_gallery_button">Tools</string>
     <string name="tools_gallery_title">Tool Collection</string>
     <string name="tools_gallery_subtitle">Tools to customize your digital space.</string>
-    <string name="whatsapp_sticker_title">WA Sticker Maker</string>
+    <string name="whatsapp_sticker_title">Sticker Maker</string>
     <string name="pick_image">Select Photo</string>
     <string name="add_to_whatsapp">Add to WhatsApp</string>
 </resources>

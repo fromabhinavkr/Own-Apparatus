@@ -24,7 +24,6 @@
             android:layout_alignParentStart="true"
             android:orientation="vertical"
             android:minWidth="130dp">
-            <!-- Removed center_vertical gravity to allow perfect top/bottom alignment -->
 
             <LinearLayout
                 android:layout_width="wrap_content"
@@ -58,7 +57,6 @@
                 android:textSize="12sp"
                 android:layout_marginTop="2dp" />
 
-            <!-- ADDED: Invisible spacer that pushes the details box exactly to the bottom -->
             <View
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
@@ -154,122 +152,150 @@
         android:baselineAligned="false"
         android:weightSum="2">
 
-        <!-- STORAGE CARD -->
+        <!-- STORAGE CARD (Text on Left, Wider Vertical Wave Tank on Right) -->
         <LinearLayout
             android:id="@+id/storageCardBg"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:orientation="vertical"
-            android:padding="16dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="16dp"
             android:background="@drawable/bg_storage_card"
             android:layout_marginEnd="6dp">
 
             <LinearLayout
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:baselineAligned="true">
-                <TextView
-                    android:id="@+id/tvStorageValueLarge"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <LinearLayout
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="0.0"
-                    android:textSize="32sp"
-                    android:textStyle="bold"
-                    android:includeFontPadding="false" />
+                    android:orientation="horizontal"
+                    android:baselineAligned="true">
+                    <TextView
+                        android:id="@+id/tvStorageValueLarge"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0.0"
+                        android:textSize="26sp"
+                        android:textStyle="bold"
+                        android:maxLines="1"
+                        android:includeFontPadding="false" />
+                    <TextView
+                        android:id="@+id/tvStorageUnit"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="GB"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:layout_marginStart="3dp"
+                        android:includeFontPadding="false" />
+                </LinearLayout>
+
                 <TextView
-                    android:id="@+id/tvStorageUnit"
+                    android:id="@+id/tvStorageTitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="GB"
-                    android:textSize="16sp"
+                    android:text="Storage Level"
+                    android:textSize="12sp"
+                    android:maxLines="1"
+                    android:layout_marginTop="2dp" />
+
+                <TextView
+                    android:id="@+id/tvStorageStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Out of 0 GB"
                     android:textStyle="bold"
-                    android:layout_marginStart="4dp"
-                    android:includeFontPadding="false" />
+                    android:textSize="12.5sp"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:layout_marginTop="20dp" />
             </LinearLayout>
 
-            <TextView
-                android:id="@+id/tvStorageTitle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Storage Level"
-                android:textSize="12sp"
-                android:layout_marginTop="2dp" />
-
-            <TextView
-                android:id="@+id/tvStorageStatus"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Optimal Space"
-                android:textStyle="bold"
-                android:textSize="14sp"
-                android:layout_marginTop="18dp" />
-
+            <!-- Wider Vertical Wave Indicator on the Right Side -->
             <FrameLayout
                 android:id="@+id/storageSegmentContainer"
-                android:layout_width="match_parent"
-                android:layout_height="12dp"
-                android:layout_marginTop="6dp" />
+                android:layout_width="54dp"
+                android:layout_height="86dp"
+                android:layout_marginStart="6dp" />
         </LinearLayout>
 
-        <!-- BATTERY CARD -->
+        <!-- BATTERY CARD (Text on Left, Wider Vertical 5-Pill Block Box on Right) -->
         <LinearLayout
             android:id="@+id/batteryCardBg"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:orientation="vertical"
-            android:padding="16dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="16dp"
             android:background="@drawable/bg_storage_card"
             android:layout_marginStart="6dp">
 
             <LinearLayout
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:baselineAligned="true">
-                <TextView
-                    android:id="@+id/tvBatteryValueLarge"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <LinearLayout
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="0"
-                    android:textSize="32sp"
-                    android:textStyle="bold"
-                    android:includeFontPadding="false" />
+                    android:orientation="horizontal"
+                    android:baselineAligned="true">
+                    <TextView
+                        android:id="@+id/tvBatteryValueLarge"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0"
+                        android:textSize="26sp"
+                        android:textStyle="bold"
+                        android:maxLines="1"
+                        android:includeFontPadding="false" />
+                    <TextView
+                        android:id="@+id/tvBatteryUnit"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="%"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:layout_marginStart="2dp"
+                        android:includeFontPadding="false" />
+                </LinearLayout>
+
                 <TextView
-                    android:id="@+id/tvBatteryUnit"
+                    android:id="@+id/tvBatteryTitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="%"
-                    android:textSize="18sp"
+                    android:text="Battery Level"
+                    android:textSize="12sp"
+                    android:maxLines="1"
+                    android:layout_marginTop="2dp" />
+
+                <TextView
+                    android:id="@+id/tvBatteryStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Checking..."
                     android:textStyle="bold"
-                    android:layout_marginStart="2dp"
-                    android:includeFontPadding="false" />
+                    android:textSize="12.5sp"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:layout_marginTop="20dp" />
             </LinearLayout>
 
-            <TextView
-                android:id="@+id/tvBatteryTitle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Battery Level"
-                android:textSize="12sp"
-                android:layout_marginTop="2dp" />
-
-            <TextView
-                android:id="@+id/tvBatteryStatus"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Checking..."
-                android:textStyle="bold"
-                android:textSize="14sp"
-                android:layout_marginTop="18dp" />
-
+            <!-- Wider Vertical 5-Pill Battery Indicator on the Right Side -->
             <FrameLayout
                 android:id="@+id/batterySegmentContainer"
-                android:layout_width="match_parent"
-                android:layout_height="12dp"
-                android:layout_marginTop="6dp" />
+                android:layout_width="54dp"
+                android:layout_height="86dp"
+                android:layout_marginStart="6dp" />
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>

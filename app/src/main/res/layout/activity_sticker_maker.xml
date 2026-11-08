@@ -213,10 +213,11 @@
             android:orientation="horizontal"
             android:paddingHorizontal="20dp">
 
-            <FrameLayout
+            <ImageView
                 android:id="@+id/iconPublish"
                 android:layout_width="24dp"
-                android:layout_height="24dp" />
+                android:layout_height="24dp"
+                android:src="@drawable/ic_whatsapp" />
 
             <TextView
                 android:id="@+id/tvPublish"

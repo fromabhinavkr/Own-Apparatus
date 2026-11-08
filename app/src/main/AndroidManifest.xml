@@ -138,7 +138,7 @@
         <activity
             android:name=".BreakoutActivity"
             android:exported="false"
-            android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:theme="@style/Theme.OwnPhotoONWall" />
 
         <activity

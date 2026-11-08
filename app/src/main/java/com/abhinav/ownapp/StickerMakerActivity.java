@@ -591,7 +591,7 @@ public class StickerMakerActivity extends AppCompatActivity {
         btnPackOptions.setBackground(gdDots);
         btnPackOptions.setOnClickListener(v -> showDeletePackDialog());
 
-        setupBottomButton(btnAddWA, StickerIconView.ICON_SEND, "Publish to WhatsApp", accentColor, isDarkTheme ? Color.BLACK : Color.WHITE);
+        setupBottomButton(btnAddWA, StickerIconView.ICON_SEND, "Add to WhatsApp", accentColor, isDarkTheme ? Color.BLACK : Color.WHITE);
 
         deviceId = prefs.getString("device_sticker_id", "");
         if (deviceId.isEmpty()) {
@@ -754,10 +754,10 @@ public class StickerMakerActivity extends AppCompatActivity {
         gd.setColor(bgCol);
         gd.setCornerRadius(100f);
         layout.setBackground(gd);
-
-        FrameLayout iconFrame = (FrameLayout) layout.getChildAt(0);
-        iconFrame.removeAllViews();
-        iconFrame.addView(new StickerIconView(this, iconType, txtCol));
+        ImageView iconPublish = layout.findViewById(R.id.iconPublish);
+        if (iconPublish != null) {
+            iconPublish.setColorFilter(txtCol, PorterDuff.Mode.SRC_IN);
+        }
 
         TextView tv = (TextView) layout.getChildAt(1);
         tv.setText(text);

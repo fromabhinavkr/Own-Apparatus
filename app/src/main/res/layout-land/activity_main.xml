@@ -160,36 +160,24 @@
                     </LinearLayout>
                 </LinearLayout>
 
-                <!-- Inner Pill for Network Speed ON/OFF Switch -->
-                <LinearLayout
+                <!-- Inner Circle Pill for Network Speed Monitor -->
+                <FrameLayout
                     android:id="@+id/net_speed_pill"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
                     android:layout_marginStart="10dp"
-                    android:paddingHorizontal="8dp"
-                    android:paddingVertical="4dp"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:clickable="true"
-                    android:focusable="true"
                     android:elevation="0dp">
 
-                    <TextView
-                        android:id="@+id/tvNetSpeedLbl"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="NET OFF"
-                        android:textSize="8sp"
-                        android:textStyle="bold"
-                        android:includeFontPadding="false" />
-
-                    <Switch
-                        android:id="@+id/switch_net_speed"
-                        android:layout_width="wrap_content"
-                        android:layout_height="20dp"
-                        android:scaleX="0.75"
-                        android:scaleY="0.75" />
-                </LinearLayout>
+                    <ImageButton
+                        android:id="@+id/btn_net_speed_toggle"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:background="?android:attr/selectableItemBackgroundBorderless"
+                        android:src="@drawable/ic_networkcheck"
+                        android:scaleType="fitCenter"
+                        android:padding="8dp"
+                        android:contentDescription="Network Usage Monitor" />
+                </FrameLayout>
 
             </LinearLayout>
         </LinearLayout>
