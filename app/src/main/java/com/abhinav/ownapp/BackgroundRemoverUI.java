@@ -8,7 +8,9 @@ import android.graphics.drawable.GradientDrawable;
 import android.view.*;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.*;
+import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 
@@ -24,29 +26,47 @@ public class BackgroundRemoverUI {
     private View bgRootView;
     private LinearLayout leftPanel;
     private LinearLayout rightPanel;
-    private Button btnEraser, btnRepair, btnAuto, btnZoom;
+    private Button btnEraser, btnRepair, btnAuto, btnZoom, btnUndo, btnRedo;
     private Button btnTBgChecker, btnTBgWhite, btnTBgBlack, btnTBgGreen, btnTBgBlue, btnTBgBrown;
     private boolean isZoomActive = false;
     private boolean isCustomAutoActive = false;
     private BgModernSlider modernSizeSlider, modernSmoothSlider;
 
+    /* Fast LUTs for perceptual CIELAB conversion */
+    private static final float[] SRGB_TO_LIN = new float[256];
+    private static final float[] LAB_F_LUT = new float[1025];
+
+    static {
+        for (int i = 0; i < 256; i++) {
+            float v = i / 255.0f;
+            SRGB_TO_LIN[i] = (v <= 0.04045f) ? (v / 12.92f) : (float) Math.pow((v + 0.055f) / 1.055f, 2.4);
+        }
+        for (int i = 0; i <= 1024; i++) {
+            float t = i / 1024.0f;
+            LAB_F_LUT[i] = (t > 0.008856f) ? (float) Math.cbrt(t) : (7.787f * t + 16.0f / 116.0f);
+        }
+    }
+
     private static class HistoryState {
-        final int[] maskPixels;
-        final int[] rawMaskPixels;
+        final byte[] rleMaskAlpha;
+        final byte[] rleRawAlpha;
         final float smoothLevel;
 
-        HistoryState(int[] maskPixels, int[] rawMaskPixels, float smoothLevel) {
-            this.maskPixels = maskPixels;
-            this.rawMaskPixels = rawMaskPixels;
+        HistoryState(byte[] rleMaskAlpha, byte[] rleRawAlpha, float smoothLevel) {
+            this.rleMaskAlpha = rleMaskAlpha;
+            this.rleRawAlpha = rleRawAlpha;
             this.smoothLevel = smoothLevel;
         }
     }
 
     private final List<HistoryState> undoStack = new ArrayList<>();
     private final List<HistoryState> redoStack = new ArrayList<>();
-    private static final int MAX_HISTORY = 20;
+    private static final int MAX_HISTORY = 30;
+
     private HistoryState pendingManualState = null;
     private boolean isManualStrokeInProgress = false;
+    private HistoryState pendingSmoothState = null;
+    private boolean smoothDragCommitted = false;
 
     public BackgroundRemoverUI(ImageEditorActivity activity, ImageEditorActivity.PhotoEditorView editorView, boolean isDarkTheme, int panelColor, int textColor) {
         this.activity = activity;
@@ -71,6 +91,10 @@ public class BackgroundRemoverUI {
 
         undoStack.clear();
         redoStack.clear();
+        pendingManualState = null;
+        pendingSmoothState = null;
+        isManualStrokeInProgress = false;
+        smoothDragCommitted = false;
         isCustomAutoActive = false;
 
         setupTheming();
@@ -81,6 +105,7 @@ public class BackgroundRemoverUI {
         editorView.startBgEraser((int) editorView.drawingManager.currentBrushWidth, false);
         syncRawMaskFromCurrent();
         updateToolHighlight(btnEraser);
+        updateHistoryButtons();
     }
 
     private void setViewVisibility(int id, int visibility) {
@@ -108,22 +133,57 @@ public class BackgroundRemoverUI {
         activity.updateToolButtons();
     }
 
+    /* ================= RLE-COMPRESSED UNIFIED UNDO / REDO ================= */
+
+    private static byte[] encodeAlphaRle(int[] pixels) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream(Math.max(256, pixels.length / 16));
+        int n = pixels.length;
+        int i = 0;
+        while (i < n) {
+            int val = (pixels[i] >>> 24) & 0xFF;
+            int run = 1;
+            while (i + run < n && run < 255 && (((pixels[i + run] >>> 24) & 0xFF) == val)) {
+                run++;
+            }
+            out.write(run);
+            out.write(val);
+            i += run;
+        }
+        return out.toByteArray();
+    }
+
+    private static int[] decodeAlphaRle(byte[] rle, int expectedLen) {
+        int[] pixels = new int[expectedLen];
+        int outIdx = 0;
+        for (int i = 0; i + 1 < rle.length && outIdx < expectedLen; i += 2) {
+            int run = rle[i] & 0xFF;
+            int argb = (rle[i + 1] & 0xFF) << 24;
+            int end = Math.min(expectedLen, outIdx + run);
+            Arrays.fill(pixels, outIdx, end, argb);
+            outIdx = end;
+        }
+        return pixels;
+    }
+
     private HistoryState captureCurrentState() {
         Bitmap mask = editorView.drawingManager.getEraseLayerBitmap();
         if (mask == null) return null;
         int w = mask.getWidth(), h = mask.getHeight();
         int[] maskPx = new int[w * h];
         mask.getPixels(maskPx, 0, w, 0, 0, w, h);
+        byte[] rleMask = encodeAlphaRle(maskPx);
 
-        int[] rawPx = null;
-        if (editorView.rawEraseMask != null && !editorView.rawEraseMask.isRecycled()
+        byte[] rleRaw;
+        if (editorView.currentSmoothLevel > 0.01f
+                && editorView.rawEraseMask != null && !editorView.rawEraseMask.isRecycled()
                 && editorView.rawEraseMask.getWidth() == w && editorView.rawEraseMask.getHeight() == h) {
-            rawPx = new int[w * h];
+            int[] rawPx = new int[w * h];
             editorView.rawEraseMask.getPixels(rawPx, 0, w, 0, 0, w, h);
+            rleRaw = encodeAlphaRle(rawPx);
         } else {
-            rawPx = maskPx.clone();
+            rleRaw = rleMask;
         }
-        return new HistoryState(maskPx, rawPx, editorView.currentSmoothLevel);
+        return new HistoryState(rleMask, rleRaw, editorView.currentSmoothLevel);
     }
 
     private void pushHistoryState(HistoryState state) {
@@ -133,32 +193,35 @@ public class BackgroundRemoverUI {
             undoStack.remove(0);
         }
         redoStack.clear();
+        updateHistoryButtons();
     }
 
     private void restoreHistoryState(HistoryState state) {
         Bitmap mask = editorView.drawingManager.getEraseLayerBitmap();
         if (mask == null || state == null) return;
         int w = mask.getWidth(), h = mask.getHeight();
-        if (state.maskPixels.length != w * h) return;
+        int total = w * h;
 
-        mask.setPixels(state.maskPixels, 0, w, 0, 0, w, h);
+        int[] restoredMask = decodeAlphaRle(state.rleMaskAlpha, total);
+        mask.setPixels(restoredMask, 0, w, 0, 0, w, h);
 
-        if (state.rawMaskPixels != null && state.rawMaskPixels.length == w * h) {
-            if (editorView.rawEraseMask == null || editorView.rawEraseMask.isRecycled()
-                    || editorView.rawEraseMask.getWidth() != w || editorView.rawEraseMask.getHeight() != h) {
-                Bitmap.Config cfg = mask.getConfig() != null ? mask.getConfig() : Bitmap.Config.ARGB_8888;
-                editorView.rawEraseMask = Bitmap.createBitmap(w, h, cfg);
-            }
-            editorView.rawEraseMask.setPixels(state.rawMaskPixels, 0, w, 0, 0, w, h);
-        } else {
-            syncRawMaskFromCurrent();
+        int[] restoredRaw = (state.rleRawAlpha == state.rleMaskAlpha)
+                ? restoredMask
+                : decodeAlphaRle(state.rleRawAlpha, total);
+
+        if (editorView.rawEraseMask == null || editorView.rawEraseMask.isRecycled()
+                || editorView.rawEraseMask.getWidth() != w || editorView.rawEraseMask.getHeight() != h) {
+            Bitmap.Config cfg = mask.getConfig() != null ? mask.getConfig() : Bitmap.Config.ARGB_8888;
+            editorView.rawEraseMask = Bitmap.createBitmap(w, h, cfg);
         }
+        editorView.rawEraseMask.setPixels(restoredRaw, 0, w, 0, 0, w, h);
 
         editorView.currentSmoothLevel = state.smoothLevel;
         if (modernSmoothSlider != null) {
             modernSmoothSlider.setValue(state.smoothLevel);
         }
         editorView.invalidate();
+        updateHistoryButtons();
     }
 
     private void syncRawMaskFromCurrent() {
@@ -176,17 +239,19 @@ public class BackgroundRemoverUI {
         }
     }
 
-    private boolean hasMaskChanged(int[] before) {
+    private boolean hasMaskChanged(byte[] beforeRle) {
         Bitmap mask = editorView.drawingManager.getEraseLayerBitmap();
-        if (mask == null || before == null) return false;
+        if (mask == null || beforeRle == null) return false;
         int w = mask.getWidth(), h = mask.getHeight();
-        if (before.length != w * h) return false;
         int[] now = new int[w * h];
         mask.getPixels(now, 0, w, 0, 0, w, h);
-        for (int i = 0; i < now.length; i++) {
-            if (now[i] != before[i]) return true;
-        }
-        return false;
+        byte[] nowRle = encodeAlphaRle(now);
+        return !Arrays.equals(beforeRle, nowRle);
+    }
+
+    private void updateHistoryButtons() {
+        if (btnUndo != null) btnUndo.setAlpha(undoStack.isEmpty() ? 0.45f : 1.0f);
+        if (btnRedo != null) btnRedo.setAlpha(redoStack.isEmpty() ? 0.45f : 1.0f);
     }
 
     private void performUndo() {
@@ -210,6 +275,8 @@ public class BackgroundRemoverUI {
             Toast.makeText(activity, "Nothing to redo", Toast.LENGTH_SHORT).show();
         }
     }
+
+    /* ================= THEMING & INTERACTIONS ================= */
 
     private void setupTheming() {
         TextView tvTitle = bgRootView.findViewById(R.id.tvBgTitle);
@@ -235,8 +302,8 @@ public class BackgroundRemoverUI {
 
         Button btnSettings = bgRootView.findViewById(R.id.btnBgSettings);
         Button btnTools = bgRootView.findViewById(R.id.btnBgTools);
-        Button btnUndo = bgRootView.findViewById(R.id.btnBgUndo);
-        Button btnRedo = bgRootView.findViewById(R.id.btnBgRedo);
+        btnUndo = bgRootView.findViewById(R.id.btnBgUndo);
+        btnRedo = bgRootView.findViewById(R.id.btnBgRedo);
 
         int capsuleColor = isDarkTheme ? Color.parseColor("#2C2C2E") : Color.parseColor("#D1D1D6");
         int capsuleTextColor = isDarkTheme ? Color.WHITE : Color.parseColor("#333333");
@@ -319,8 +386,6 @@ public class BackgroundRemoverUI {
         btnDone.setOnClickListener(v -> close());
         Button btnSettings = bgRootView.findViewById(R.id.btnBgSettings);
         Button btnTools = bgRootView.findViewById(R.id.btnBgTools);
-        Button btnUndo = bgRootView.findViewById(R.id.btnBgUndo);
-        Button btnRedo = bgRootView.findViewById(R.id.btnBgRedo);
 
         btnSettings.setOnClickListener(v -> togglePanel(leftPanel, true));
         btnTools.setOnClickListener(v -> togglePanel(rightPanel, false));
@@ -346,12 +411,16 @@ public class BackgroundRemoverUI {
         modernSmoothSlider = new BgModernSlider(activity, isDarkTheme, 0f, 10f, 0.1f);
         modernSmoothSlider.setValue(editorView.currentSmoothLevel);
         modernSmoothSlider.setOnStartTrackingListener(() -> {
-            HistoryState preSmooth = captureCurrentState();
-            if (preSmooth != null) pushHistoryState(preSmooth);
+            pendingSmoothState = captureCurrentState();
+            smoothDragCommitted = false;
         });
         modernSmoothSlider.setOnValueChangeListener(val -> {
             Bitmap currentMask = editorView.drawingManager.getEraseLayerBitmap();
             if (currentMask != null) {
+                if (!smoothDragCommitted && pendingSmoothState != null) {
+                    pushHistoryState(pendingSmoothState);
+                    smoothDragCommitted = true;
+                }
                 if (editorView.rawEraseMask == null || editorView.rawEraseMask.isRecycled()) {
                     syncRawMaskFromCurrent();
                 }
@@ -438,15 +507,19 @@ public class BackgroundRemoverUI {
                             Bitmap base = editorView.baseImage;
                             int bmpX = (int) ((tx - destRect.left) * (base.getWidth() / destRect.width()));
                             int bmpY = (int) ((ty - destRect.top) * (base.getHeight() / destRect.height()));
-                            removeColorAndEliminateHalo(bmpX, bmpY);
-                            Toast.makeText(activity, "Color removed!", Toast.LENGTH_SHORT).show();
+                            boolean removed = removeColorAdvanced(bmpX, bmpY);
+                            if (removed) {
+                                Toast.makeText(activity, "Color removed!", Toast.LENGTH_SHORT).show();
+                            }
                         }
                     } catch (Exception ignored) {}
                 }
                 return true;
             }
 
-            /* Intercept Manual Eraser & Repair strokes so Undo/Redo tracks them in the exact same stack */
+            /* Unified tracking for Manual Eraser & Repair strokes */
+            if (!editorView.drawingManager.isDrawMode) return false;
+
             if (action == MotionEvent.ACTION_DOWN && event.getPointerCount() == 1) {
                 pendingManualState = captureCurrentState();
                 isManualStrokeInProgress = true;
@@ -458,7 +531,7 @@ public class BackgroundRemoverUI {
                 final HistoryState savedBefore = pendingManualState;
                 pendingManualState = null;
                 v.post(() -> {
-                    if (savedBefore != null && hasMaskChanged(savedBefore.maskPixels)) {
+                    if (savedBefore != null && hasMaskChanged(savedBefore.rleMaskAlpha)) {
                         pushHistoryState(savedBefore);
                         editorView.currentSmoothLevel = 0f;
                         if (modernSmoothSlider != null) modernSmoothSlider.setValue(0f);
@@ -470,274 +543,408 @@ public class BackgroundRemoverUI {
         });
     }
 
-    private void removeColorAndEliminateHalo(int tapX, int tapY) {
+    /* ================= ADVANCED PERCEPTUAL AUTO COLOR REMOVER ================= */
+
+    private static void rgbToLab(int r, int g, int b, float[] outLab) {
+        float rl = SRGB_TO_LIN[r];
+        float gl = SRGB_TO_LIN[g];
+        float bl = SRGB_TO_LIN[b];
+
+        float x = (0.4124564f * rl + 0.3575761f * gl + 0.1804375f * bl) / 0.95047f;
+        float y = (0.2126729f * rl + 0.7151522f * gl + 0.0721750f * bl);
+        float z = (0.0193339f * rl + 0.1191920f * gl + 0.9503041f * bl) / 1.08883f;
+
+        int ix = Math.max(0, Math.min(1024, (int) (x * 1024.0f)));
+        int iy = Math.max(0, Math.min(1024, (int) (y * 1024.0f)));
+        int iz = Math.max(0, Math.min(1024, (int) (z * 1024.0f)));
+
+        float fx = LAB_F_LUT[ix];
+        float fy = LAB_F_LUT[iy];
+        float fz = LAB_F_LUT[iz];
+
+        outLab[0] = 116.0f * fy - 16.0f;
+        outLab[1] = 500.0f * (fx - fy);
+        outLab[2] = 200.0f * (fy - fz);
+    }
+
+    private boolean removeColorAdvanced(int tapX, int tapY) {
         Bitmap base = editorView.baseImage;
         Bitmap eraseMask = editorView.drawingManager.getEraseLayerBitmap();
-        if (base == null || eraseMask == null) return;
+        if (base == null || eraseMask == null) return false;
 
         int w = base.getWidth(), h = base.getHeight();
+        int total = w * h;
         tapX = Math.max(0, Math.min(tapX, w - 1));
         tapY = Math.max(0, Math.min(tapY, h - 1));
 
-        HistoryState preAutoState = captureCurrentState();
-
-        int[] basePixels = new int[w * h];
-        int[] maskPixels = new int[w * h];
+        int[] basePixels = new int[total];
+        int[] maskPixels = new int[total];
         base.getPixels(basePixels, 0, w, 0, 0, w, h);
         eraseMask.getPixels(maskPixels, 0, w, 0, 0, w, h);
 
-        /* 1. Sample 5x5 patch around tap point for accurate target background color */
+        int tapIdx = tapY * w + tapX;
+        if (((basePixels[tapIdx] >>> 24) & 0xFF) < 10 || ((maskPixels[tapIdx] >>> 24) & 0xFF) >= 220) {
+            Toast.makeText(activity, "Area is already transparent", Toast.LENGTH_SHORT).show();
+            return false;
+        }
+
+        HistoryState preAutoState = captureCurrentState();
+
+        /* 1. Outlier-Rejected 5x5 Seed Sampling */
+        int c0 = basePixels[tapIdx];
+        int r0 = (c0 >> 16) & 0xFF, g0 = (c0 >> 8) & 0xFF, b0 = c0 & 0xFF;
         long sR = 0, sG = 0, sB = 0, cnt = 0;
         for (int dy = -2; dy <= 2; dy++) {
+            int sy = tapY + dy;
+            if (sy < 0 || sy >= h) continue;
+            int row = sy * w;
             for (int dx = -2; dx <= 2; dx++) {
-                int sx = Math.max(0, Math.min(tapX + dx, w - 1));
-                int sy = Math.max(0, Math.min(tapY + dy, h - 1));
-                int idx = sy * w + sx;
+                int sx = tapX + dx;
+                if (sx < 0 || sx >= w) continue;
+                int idx = row + sx;
                 int c = basePixels[idx];
-                if ((c >>> 24) > 10 && ((maskPixels[idx] >>> 24) & 0xFF) < 200) {
-                    sR += (c >> 16) & 0xFF;
-                    sG += (c >> 8) & 0xFF;
-                    sB += c & 0xFF;
-                    cnt++;
+                if (((c >>> 24) & 0xFF) > 20 && ((maskPixels[idx] >>> 24) & 0xFF) < 200) {
+                    int rr = (c >> 16) & 0xFF, gg = (c >> 8) & 0xFF, bb = c & 0xFF;
+                    int dr = rr - r0, dg = gg - g0, db = bb - b0;
+                    if (dr * dr + dg * dg + db * db <= 324) { /* within RGB dist 18 of tap center */
+                        sR += rr;
+                        sG += gg;
+                        sB += bb;
+                        cnt++;
+                    }
                 }
             }
         }
-        if (cnt == 0) {
-            int c = basePixels[tapY * w + tapX];
-            sR = (c >> 16) & 0xFF;
-            sG = (c >> 8) & 0xFF;
-            sB = c & 0xFF;
-            cnt = 1;
-        }
-        int rT = (int) (sR / cnt), gT = (int) (sG / cnt), bT = (int) (sB / cnt);
+        int rT = (cnt > 0) ? (int) (sR / cnt) : r0;
+        int gT = (cnt > 0) ? (int) (sG / cnt) : g0;
+        int bT = (cnt > 0) ? (int) (sB / cnt) : b0;
 
-        float meanT = (rT + gT + bT) / 3f;
-        float cRT = rT - meanT, cGT = gT - meanT, cBT = bT - meanT;
-        float chromaMagT = (float) Math.sqrt(cRT * cRT + cGT * cGT + cBT * cBT);
-        float uTr = (chromaMagT > 1e-3f) ? (cRT / chromaMagT) : 0f;
-        float uTg = (chromaMagT > 1e-3f) ? (cGT / chromaMagT) : 0f;
-        float uTb = (chromaMagT > 1e-3f) ? (cBT / chromaMagT) : 0f;
+        /* Target color in Perceptual CIELAB */
+        float[] labTmp = new float[3];
+        rgbToLab(rT, gT, bT, labTmp);
+        float lT = labTmp[0], aT = labTmp[1], bLabT = labTmp[2];
+        float chromaT = (float) Math.sqrt(aT * aT + bLabT * bLabT);
+        boolean isChromaticBg = (chromaT >= 12.0f);
+        float uAT = isChromaticBg ? (aT / chromaT) : 0f;
+        float uBT = isChromaticBg ? (bLabT / chromaT) : 0f;
 
-        int maxT = Math.max(rT, Math.max(gT, bT)), minT = Math.min(rT, Math.min(gT, bT)), deltaT = maxT - minT;
-        float satT = (maxT == 0) ? 0f : (deltaT / (float) maxT);
-        boolean isChromaticBg = (deltaT >= 18 && satT >= 0.18f && maxT >= 35);
-        boolean isBlueDominantBg = isChromaticBg && (bT >= rT && bT >= gT);
-        int domChannelT = (rT >= gT && rT >= bT) ? 0 : ((gT >= rT && gT >= bT) ? 1 : 2);
+        /* Precompute CIELAB and RGB distance to target for all pixels */
+        float[] lArr = new float[total];
+        float[] aArr = new float[total];
+        float[] bArr = new float[total];
+        float[] chromaArr = new float[total];
+        float[] rgbDistArr = new float[total];
+        float[] labDistArr = new float[total];
+        float[] hueCosArr = new float[total];
 
-        int minCoreBright = isChromaticBg ? Math.max(44, (int) (maxT * 0.42f)) : Math.max(0, maxT - 36);
-        int maxCoreBright = isChromaticBg ? Math.min(255, maxT + Math.max(65, (int) (maxT * 0.50f))) : Math.min(255, maxT + 36);
-        int minCoreDelta = isChromaticBg ? Math.max(22, (int) (deltaT * 0.36f)) : 0;
-        float minCoreSat = isChromaticBg ? Math.max(0.22f, satT * 0.42f) : 0f;
-
-        int[] distToBg = new int[w * h];
-        float[] projTArr = new float[w * h];
-        float[] cosSimArr = new float[w * h];
-        float[] rgbDistArr = new float[w * h];
-
-        /* 2. Pass 1: Strict Core Background Detection */
-        for (int i = 0; i < w * h; i++) {
+        for (int i = 0; i < total; i++) {
             int c = basePixels[i];
-            if ((c >>> 24) == 0) {
-                distToBg[i] = 9999;
+            if (((c >>> 24) & 0xFF) < 10) {
+                rgbDistArr[i] = 999f;
+                labDistArr[i] = 999f;
                 continue;
             }
             int r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
-            int maxC = Math.max(r, Math.max(g, b)), minC = Math.min(r, Math.min(g, b)), deltaC = maxC - minC;
-            float satC = (maxC == 0) ? 0f : (deltaC / (float) maxC);
             int dr = r - rT, dg = g - gT, db = b - bT;
-            float rawEuclid = (float) Math.sqrt(dr * dr + dg * dg + db * db);
-            float euclidDist = rawEuclid * 0.58f;
-            rgbDistArr[i] = euclidDist;
+            rgbDistArr[i] = (float) Math.sqrt(dr * dr + dg * dg + db * db);
 
-            float meanC = (r + g + b) / 3f;
-            float cR = r - meanC, cG = g - meanC, cB = b - meanC;
-            float cMag = (float) Math.sqrt(cR * cR + cG * cG + cB * cB);
-            float projT = cR * uTr + cG * uTg + cB * uTb;
-            float cosSim = (isChromaticBg && cMag > 2.0f) ? (projT / cMag) : 0f;
-            projTArr[i] = projT;
-            cosSimArr[i] = cosSim;
+            rgbToLab(r, g, b, labTmp);
+            float l = labTmp[0], a = labTmp[1], bl = labTmp[2];
+            lArr[i] = l;
+            aArr[i] = a;
+            bArr[i] = bl;
+            float ch = (float) Math.sqrt(a * a + bl * bl);
+            chromaArr[i] = ch;
 
-            boolean isCoreMatch;
+            float dL = l - lT, dA = a - aT, dB = bl - bLabT;
             if (isChromaticBg) {
-                int domC = (r >= g && r >= b) ? 0 : ((g >= r && g >= b) ? 1 : 2);
-                boolean sameDom = (domC == domChannelT) || (cosSim >= 0.93f);
-                boolean passGuard = sameDom && (maxC >= minCoreBright && maxC <= maxCoreBright && deltaC >= minCoreDelta && satC >= minCoreSat);
-                isCoreMatch = passGuard && ((euclidDist <= 40f && cosSim >= 0.86f) || (cosSim >= 0.91f && euclidDist <= 88f));
+                /* Weight hue/chroma strictly, allow moderate lightness variation (shadows/highlights on backdrop) */
+                labDistArr[i] = (float) Math.sqrt(0.45f * dL * dL + 1.25f * dA * dA + 1.25f * dB * dB);
+                hueCosArr[i] = (ch > 2.5f) ? ((a * uAT + bl * uBT) / ch) : 0f;
             } else {
-                /* Achromatic (Black, White, Grey) Core Match */
-                isCoreMatch = (deltaC <= Math.max(22, deltaT + 12)
-                        && maxC >= minCoreBright && maxC <= maxCoreBright
-                        && euclidDist <= 28f);
-            }
-            if (isCoreMatch) {
-                maskPixels[i] = 0xFF000000;
-                distToBg[i] = 0;
-            } else {
-                distToBg[i] = 9999;
+                /* Achromatic (Black/White/Grey): strictly enforce both lightness and neutral chroma */
+                labDistArr[i] = (float) Math.sqrt(1.1f * dL * dL + 1.4f * dA * dA + 1.4f * dB * dB);
+                hueCosArr[i] = 0f;
             }
         }
 
-        /* 3. Pass 2: Fast Distance Transform from Core Background */
+        /* 2. Pass 1A: Edge-Aware Contiguous Region Growing (BFS from tap point) */
+        boolean[] isCoreBg = new boolean[total];
+        boolean[] visited = new boolean[total];
+        int[] queue = new int[total];
+        int qHead = 0, qTail = 0;
+
+        isCoreBg[tapIdx] = true;
+        visited[tapIdx] = true;
+        queue[qTail++] = tapIdx;
+
+        int[] nx4 = {-1, 1, 0, 0};
+        int[] ny4 = {0, 0, -1, 1};
+
+        float maxAchromaticChroma = Math.max(10.5f, chromaT + 7.0f);
+        float minChromaticChroma = Math.max(9.0f, chromaT * 0.34f);
+
+        while (qHead < qTail) {
+            int curr = queue[qHead++];
+            int cx = curr % w;
+            int cy = curr / w;
+            float cL = lArr[curr], cA = aArr[curr], cB = bArr[curr];
+
+            for (int k = 0; k < 4; k++) {
+                int x = cx + nx4[k];
+                int y = cy + ny4[k];
+                if (x < 0 || x >= w || y < 0 || y >= h) continue;
+                int ni = y * w + x;
+                if (visited[ni]) continue;
+
+                if (((basePixels[ni] >>> 24) & 0xFF) < 10) {
+                    visited[ni] = true;
+                    continue;
+                }
+
+                float sDL = lArr[ni] - cL, sDA = aArr[ni] - cA, sDB = bArr[ni] - cB;
+                float stepDeltaE = (float) Math.sqrt(sDL * sDL + sDA * sDA + sDB * sDB);
+
+                boolean accept;
+                if (isChromaticBg) {
+                    boolean hueOk = hueCosArr[ni] >= 0.89f && chromaArr[ni] >= minChromaticChroma;
+                    accept = hueOk && (
+                            (labDistArr[ni] <= 24.0f && stepDeltaE <= 18.0f)
+                                    || (labDistArr[ni] <= 36.0f && hueCosArr[ni] >= 0.92f && stepDeltaE <= 6.5f)
+                    );
+                } else {
+                    boolean neutralOk = chromaArr[ni] <= maxAchromaticChroma;
+                    accept = neutralOk && (
+                            (labDistArr[ni] <= 15.0f && rgbDistArr[ni] <= 30.0f && stepDeltaE <= 14.0f)
+                                    || (labDistArr[ni] <= 22.0f && rgbDistArr[ni] <= 40.0f && stepDeltaE <= 5.0f)
+                    );
+                }
+
+                if (accept) {
+                    visited[ni] = true;
+                    isCoreBg[ni] = true;
+                    queue[qTail++] = ni;
+                }
+            }
+        }
+
+        /* 3. Pass 1B: Strict Global Exact-Pocket Match (cleans disconnected holes of identical background color) */
+        float strictNeutralChroma = Math.max(8.5f, chromaT + 5.5f);
+        float strictChromaticChroma = Math.max(11.0f, chromaT * 0.44f);
+        for (int i = 0; i < total; i++) {
+            if (isCoreBg[i] || ((basePixels[i] >>> 24) & 0xFF) < 10) continue;
+            if (isChromaticBg) {
+                if (hueCosArr[i] >= 0.93f && chromaArr[i] >= strictChromaticChroma && labDistArr[i] <= 17.5f) {
+                    isCoreBg[i] = true;
+                }
+            } else {
+                if (chromaArr[i] <= strictNeutralChroma && labDistArr[i] <= 10.5f && rgbDistArr[i] <= 22.0f) {
+                    isCoreBg[i] = true;
+                }
+            }
+        }
+
+        /* Mark Core Background in mask & initialize 3-4 Chamfer Euclidean Distance Field */
+        int[] chamferDist = new int[total];
+        final int INF = 100000;
+        for (int i = 0; i < total; i++) {
+            if (isCoreBg[i]) {
+                maskPixels[i] = 0xFF000000;
+                chamferDist[i] = 0;
+            } else {
+                chamferDist[i] = INF;
+            }
+        }
+
+        /* 4. Pass 2: Accurate 3-4 Chamfer Euclidean Distance Transform */
         for (int y = 0; y < h; y++) {
             int row = y * w;
             for (int x = 0; x < w; x++) {
                 int idx = row + x;
-                int d = distToBg[idx];
+                int d = chamferDist[idx];
                 if (d == 0) continue;
-                if (x > 0 && distToBg[idx - 1] + 1 < d) d = distToBg[idx - 1] + 1;
-                if (y > 0 && distToBg[idx - w] + 1 < d) d = distToBg[idx - w] + 1;
-                if (x > 0 && y > 0 && distToBg[idx - w - 1] + 1 < d) d = distToBg[idx - w - 1] + 1;
-                if (x < w - 1 && y > 0 && distToBg[idx - w + 1] + 1 < d) d = distToBg[idx - w + 1] + 1;
-                distToBg[idx] = d;
+                if (x > 0 && chamferDist[idx - 1] + 3 < d) d = chamferDist[idx - 1] + 3;
+                if (y > 0 && chamferDist[idx - w] + 3 < d) d = chamferDist[idx - w] + 3;
+                if (x > 0 && y > 0 && chamferDist[idx - w - 1] + 4 < d) d = chamferDist[idx - w - 1] + 4;
+                if (x < w - 1 && y > 0 && chamferDist[idx - w + 1] + 4 < d) d = chamferDist[idx - w + 1] + 4;
+                chamferDist[idx] = d;
             }
         }
         for (int y = h - 1; y >= 0; y--) {
             int row = y * w;
             for (int x = w - 1; x >= 0; x--) {
                 int idx = row + x;
-                int d = distToBg[idx];
+                int d = chamferDist[idx];
                 if (d == 0) continue;
-                if (x < w - 1 && distToBg[idx + 1] + 1 < d) d = distToBg[idx + 1] + 1;
-                if (y < h - 1 && distToBg[idx + w] + 1 < d) d = distToBg[idx + w] + 1;
-                if (x < w - 1 && y < h - 1 && distToBg[idx + w + 1] + 1 < d) d = distToBg[idx + w + 1] + 1;
-                if (x > 0 && y < h - 1 && distToBg[idx + w - 1] + 1 < d) d = distToBg[idx + w - 1] + 1;
-                distToBg[idx] = d;
+                if (x < w - 1 && chamferDist[idx + 1] + 3 < d) d = chamferDist[idx + 1] + 3;
+                if (y < h - 1 && chamferDist[idx + w] + 3 < d) d = chamferDist[idx + w] + 3;
+                if (x < w - 1 && y < h - 1 && chamferDist[idx + w + 1] + 4 < d) d = chamferDist[idx + w + 1] + 4;
+                if (x > 0 && y < h - 1 && chamferDist[idx + w - 1] + 4 < d) d = chamferDist[idx + w - 1] + 4;
+                chamferDist[idx] = d;
             }
         }
 
-        /* 4. Pass 3: Precision Sub-Pixel Anti-Aliased Boundary Eradication (Chromatic & Achromatic) */
-        int[] dirX = {-3, 3, 0, 0, -3, 3, -3, 3, -2, 2, 0, 0};
-        int[] dirY = {0, 0, -3, 3, -3, -3, 3, 3, 0, 0, -2, 2};
+        /* 5. Pass 3: Inward-Normal Guided Sub-Pixel Color Unmixing & Smooth Alpha Matting */
+        final float cos28 = 0.8829476f, sin28 = 0.4694716f;
+        final float[] raySteps = {1.6f, 2.5f, 3.5f, 4.5f};
+
         for (int y = 0; y < h; y++) {
             int row = y * w;
             for (int x = 0; x < w; x++) {
-                int i = row + x;
-                int d = distToBg[i];
-                if (d < 1 || d > 6) continue;
+                int idx = row + x;
+                int cd = chamferDist[idx];
+                /* Strict narrow anti-aliasing band: 0 < distPx <= 2.67px (never eats deep into foreground) */
+                if (cd < 1 || cd > 8) continue;
 
-                int c = basePixels[i];
+                int c = basePixels[idx];
+                if (((c >>> 24) & 0xFF) < 10) continue;
+                if (((maskPixels[idx] >>> 24) & 0xFF) >= 255) continue;
+
+                float distPx = cd / 3.0f;
                 int r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
-                int maxC = Math.max(r, Math.max(g, b)), minC = Math.min(r, Math.min(g, b)), deltaC = maxC - minC;
-                float satC = (maxC == 0) ? 0f : (deltaC / (float) maxC);
-                float projT = projTArr[i], cosSim = cosSimArr[i], rDist = rgbDistArr[i];
+                float pRgbDist = rgbDistArr[idx];
+
+                /* Compute inward normal pointing strictly from background into foreground interior */
+                int dL = (x > 0) ? chamferDist[idx - 1] : cd;
+                int dR = (x < w - 1) ? chamferDist[idx + 1] : cd;
+                int dU = (y > 0) ? chamferDist[idx - w] : cd;
+                int dD = (y < h - 1) ? chamferDist[idx + w] : cd;
+                float gx = dR - dL;
+                float gy = dD - dU;
+                float gLen = (float) Math.sqrt(gx * gx + gy * gy);
+
+                float bestResErr = 9999f;
+                float bestBeta = 0f;
+                float bestTfLen = 0f;
+
+                if (gLen > 0.01f) {
+                    float nx = gx / gLen;
+                    float ny = gy / gLen;
+
+                    /* 3 rays: exact inward normal + fanned +/-28 deg for curved edges & corners */
+                    float[] rdx = {nx, nx * cos28 - ny * sin28, nx * cos28 + ny * sin28};
+                    float[] rdy = {ny, nx * sin28 + ny * cos28, -nx * sin28 + ny * cos28};
+
+                    for (int ray = 0; ray < 3; ray++) {
+                        for (int s = 0; s < raySteps.length; s++) {
+                            int fx = Math.round(x + rdx[ray] * raySteps[s]);
+                            int fy = Math.round(y + rdy[ray] * raySteps[s]);
+                            if (fx < 0 || fx >= w || fy < 0 || fy >= h) continue;
+                            int fIdx = fy * w + fx;
+
+                            /* Candidate foreground pixel must be strictly deeper inside & clean */
+                            int minRequiredDist = (s == 0) ? (cd + 2) : (cd + 3);
+                            if (chamferDist[fIdx] < minRequiredDist || chamferDist[fIdx] >= INF) continue;
+                            if (((maskPixels[fIdx] >>> 24) & 0xFF) >= 30) continue;
+                            if (((basePixels[fIdx] >>> 24) & 0xFF) < 200) continue;
+                            if (rgbDistArr[fIdx] <= pRgbDist + 10.0f) continue;
+
+                            int fCol = basePixels[fIdx];
+                            int rF = (fCol >> 16) & 0xFF, gF = (fCol >> 8) & 0xFF, bF = fCol & 0xFF;
+                            float tfR = rT - rF, tfG = gT - gF, tfB = bT - bF;
+                            float tfLenSq = tfR * tfR + tfG * tfG + tfB * tfB;
+                            if (tfLenSq < 484.0f) continue; /* require contrast >= 22 RGB */
+
+                            float dfR = r - rF, dfG = g - gF, dfB = b - bF;
+                            /* Exact linear compositing coverage beta: P = (1 - beta)*F + beta*B */
+                            float beta = (dfR * tfR + dfG * tfG + dfB * tfB) / tfLenSq;
+                            if (beta >= 0.06f && beta <= 1.08f) {
+                                float clampedB = Math.min(1.0f, beta);
+                                float errR = dfR - clampedB * tfR;
+                                float errG = dfG - clampedB * tfG;
+                                float errB = dfB - clampedB * tfB;
+                                float resErr = (float) Math.sqrt(errR * errR + errG * errG + errB * errB);
+                                if (resErr < bestResErr) {
+                                    bestResErr = resErr;
+                                    bestBeta = clampedB;
+                                    bestTfLen = (float) Math.sqrt(tfLenSq);
+                                }
+                            }
+                        }
+                    }
+                }
+
                 int eraseAlpha = 0;
 
-                if (isChromaticBg) {
-                    int domC = (r >= g && r >= b) ? 0 : ((g >= r && g >= b) ? 1 : 2);
-                    boolean sameDom = (domC == domChannelT);
+                if (bestTfLen > 0f) {
+                    boolean isOuterRim = (distPx <= 1.45f);
+                    float maxAllowedErr = isOuterRim
+                            ? Math.max(15.0f, bestTfLen * 0.15f)
+                            : Math.max(10.0f, bestTfLen * 0.10f);
 
-                    if (minC >= 70 && maxC >= 100) {
-                        if (sameDom && cosSim >= 0.78f && projT >= 2.0f) {
-                            float factor = (7f - d) / 6f;
-                            eraseAlpha = (d <= 2 || projT >= 3.5f) ? 255 : Math.max(120, Math.round(255f * factor));
+                    if (bestResErr <= maxAllowedErr) {
+                        /* Inner band guard: never chew subtle foreground shading */
+                        boolean passBandGuard = isOuterRim || (bestBeta >= 0.24f && pRgbDist < bestTfLen * 0.82f);
+                        if (passBandGuard) {
+                            float betaLow = isOuterRim ? 0.12f : 0.24f;
+                            float betaHigh = isOuterRim ? 0.52f : 0.64f;
+                            if (bestBeta >= betaHigh) {
+                                eraseAlpha = 255;
+                            } else if (bestBeta > betaLow) {
+                                float t = (bestBeta - betaLow) / (betaHigh - betaLow);
+                                float smooth = t * t * (3.0f - 2.0f * t);
+                                eraseAlpha = Math.round(255.0f * smooth);
+                            }
+                        }
+                    }
+                }
+
+                /* Tight 1px rim fallback for JPEG ringing directly adjacent to core background */
+                if (eraseAlpha < 255 && distPx <= 1.40f) {
+                    if (isChromaticBg) {
+                        if (hueCosArr[idx] >= 0.88f && chromaArr[idx] >= Math.max(9.0f, chromaT * 0.28f) && labDistArr[idx] <= 29.0f) {
+                            float t = Math.max(0f, Math.min(1f, (29.0f - labDistArr[idx]) / 12.0f));
+                            eraseAlpha = Math.max(eraseAlpha, Math.round(255.0f * t));
                         }
                     } else {
-                        boolean passDarkBlackLock = isBlueDominantBg
-                                ? (maxC >= Math.max(50, (int) (maxT * 0.35f)) && deltaC >= Math.max(18, (int) (deltaT * 0.22f)) && satC >= 0.24f && projT >= Math.max(12f, chromaMagT * 0.18f))
-                                : (maxC >= 22 && deltaC >= 12 && satC >= 0.18f && projT >= 7.0f);
-                        if (d <= 3 && sameDom && passDarkBlackLock && cosSim >= 0.80f) {
-                            float factor = (4f - d) / 3f;
-                            eraseAlpha = (d <= 1 || cosSim >= 0.88f) ? 255 : Math.max(130, Math.round(255f * factor));
-                        }
-                    }
-
-                    if (eraseAlpha < 255 && d <= 3 && cosSim >= 0.60f && projT >= 5.0f && (!isBlueDominantBg || maxC >= 50)) {
-                        for (int k = 0; k < dirX.length; k++) {
-                            int nx = x + dirX[k], ny = y + dirY[k];
-                            if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
-                                int nIdx = ny * w + nx;
-                                int nd = distToBg[nIdx];
-                                if (nd >= d + 1 && nd < 9000 && projTArr[nIdx] < projT * 0.5f) {
-                                    int fCol = basePixels[nIdx];
-                                    int rF = (fCol >> 16) & 0xFF, gF = (fCol >> 8) & 0xFF, bF = fCol & 0xFF;
-                                    float dfR = r - rF, dfG = g - gF, dfB = b - bF;
-                                    float distCF = (float) Math.sqrt(dfR * dfR + dfG * dfG + dfB * dfB);
-                                    if (distCF <= 85f) {
-                                        float tfR = rT - rF, tfG = gT - gF, tfB = bT - bF;
-                                        float tfLenSq = tfR * tfR + tfG * tfG + tfB * tfB;
-                                        if (tfLenSq > 300f) {
-                                            float beta = (dfR * tfR + dfG * tfG + dfB * tfB) / tfLenSq;
-                                            if (beta >= 0.18f && beta <= 0.98f) {
-                                                float errR = dfR - beta * tfR, errG = dfG - beta * tfG, errB = dfB - beta * tfB;
-                                                float resErr = (float) Math.sqrt(errR * errR + errG * errG + errB * errB);
-                                                if (resErr <= 15.0f) {
-                                                    eraseAlpha = (beta >= 0.38f || d <= 1) ? 255 : Math.max(140, Math.round(255f * (beta / 0.38f)));
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    /* Achromatic Boundary Eradication: Eliminates dark/white/grey anti-aliased halos around colored shapes */
-                    if (deltaC <= Math.max(24, deltaT + 14) && maxC >= minCoreBright - 10 && maxC <= maxCoreBright + 10 && d <= 3 && rDist < 42f) {
-                        eraseAlpha = 255;
-                    } else if (d <= 4) {
-                        for (int k = 0; k < dirX.length; k++) {
-                            int nx = x + dirX[k], ny = y + dirY[k];
-                            if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
-                                int nIdx = ny * w + nx;
-                                int nd = distToBg[nIdx];
-                                if (nd >= d + 1 && nd < 9000 && rgbDistArr[nIdx] > rDist + 12f) {
-                                    int fCol = basePixels[nIdx];
-                                    int rF = (fCol >> 16) & 0xFF, gF = (fCol >> 8) & 0xFF, bF = fCol & 0xFF;
-                                    float tfR = rT - rF, tfG = gT - gF, tfB = bT - bF;
-                                    float tfLenSq = tfR * tfR + tfG * tfG + tfB * tfB;
-                                    if (tfLenSq > 250f) {
-                                        float dfR = r - rF, dfG = g - gF, dfB = b - bF;
-                                        /* beta = fraction of target background (e.g. black) mixed into foreground (e.g. green) */
-                                        float beta = (dfR * tfR + dfG * tfG + dfB * tfB) / tfLenSq;
-                                        if (beta >= 0.14f && beta <= 1.05f) {
-                                            float errR = dfR - beta * tfR, errG = dfG - beta * tfG, errB = dfB - beta * tfB;
-                                            float resErr = (float) Math.sqrt(errR * errR + errG * errG + errB * errB);
-                                            if (resErr <= 22.0f) {
-                                                int candidateAlpha;
-                                                if (beta >= 0.30f || (d <= 2 && beta >= 0.20f)) {
-                                                    candidateAlpha = 255;
-                                                } else {
-                                                    candidateAlpha = Math.max(160, Math.round(255f * (beta / 0.30f)));
-                                                }
-                                                if (candidateAlpha > eraseAlpha) eraseAlpha = candidateAlpha;
-                                                if (eraseAlpha == 255) break;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                        if (chromaArr[idx] <= Math.max(13.0f, chromaT + 8.5f) && labDistArr[idx] <= 21.0f && pRgbDist <= 42.0f) {
+                            float t = Math.max(0f, Math.min(1f, (21.0f - labDistArr[idx]) / 9.0f));
+                            eraseAlpha = Math.max(eraseAlpha, Math.round(255.0f * t));
                         }
                     }
                 }
 
                 if (eraseAlpha > 0) {
-                    int oldA = (maskPixels[i] >>> 24) & 0xFF;
-                    maskPixels[i] = (Math.max(oldA, Math.min(255, eraseAlpha)) << 24);
+                    int oldA = (maskPixels[idx] >>> 24) & 0xFF;
+                    maskPixels[idx] = (Math.max(oldA, Math.min(255, eraseAlpha)) << 24);
                 }
             }
         }
 
-        /* 5. Pass 4: Safe 1px Speckle & Corner Fringe Cleanup */
-        int[] copyMask = maskPixels.clone();
+        /* 6. Pass 4: Safe 3-Neighbor Orphan-Fringe Cleanup (erases stray 1px boundary dots, NEVER bites corners) */
+        int[] pass3Copy = maskPixels.clone();
         for (int y = 1; y < h - 1; y++) {
             int row = y * w;
             for (int x = 1; x < w - 1; x++) {
                 int idx = row + x;
-                if (((copyMask[idx] >>> 24) & 0xFF) < 220 && distToBg[idx] <= 3) {
-                    int erasedNeighbors = 0;
-                    if (((copyMask[idx - 1] >>> 24) & 0xFF) > 200) erasedNeighbors++;
-                    if (((copyMask[idx + 1] >>> 24) & 0xFF) > 200) erasedNeighbors++;
-                    if (((copyMask[idx - w] >>> 24) & 0xFF) > 200) erasedNeighbors++;
-                    if (((copyMask[idx + w] >>> 24) & 0xFF) > 200) erasedNeighbors++;
-                    boolean matchesTargetHue = isChromaticBg
-                            ? (cosSimArr[idx] >= 0.75f && projTArr[idx] >= 3.0f)
-                            : (rgbDistArr[idx] < 52f);
-                    if (erasedNeighbors >= 2 && matchesTargetHue) {
+                int curA = (pass3Copy[idx] >>> 24) & 0xFF;
+                if (curA >= 235 || chamferDist[idx] > 5) continue;
+
+                int erased4 = 0;
+                if (((pass3Copy[idx - 1] >>> 24) & 0xFF) >= 230) erased4++;
+                if (((pass3Copy[idx + 1] >>> 24) & 0xFF) >= 230) erased4++;
+                if (((pass3Copy[idx - w] >>> 24) & 0xFF) >= 230) erased4++;
+                if (((pass3Copy[idx + w] >>> 24) & 0xFF) >= 230) erased4++;
+
+                if (erased4 == 4) {
+                    /* Single 1px isolated speckle completely surrounded by transparent background */
+                    maskPixels[idx] = 0xFF000000;
+                } else if (erased4 == 3) {
+                    /* Protruding 1px fringe dot along a flat or curved edge */
+                    boolean looksLikeFringe = curA >= 90
+                            || (isChromaticBg ? (hueCosArr[idx] >= 0.80f && labDistArr[idx] <= 34.0f)
+                            : (rgbDistArr[idx] <= 55.0f || labDistArr[idx] <= 26.0f));
+                    if (looksLikeFringe) {
                         maskPixels[idx] = 0xFF000000;
                     }
                 }
             }
+        }
+
+        /* Only commit & push to Undo stack if pixels actually changed */
+        byte[] afterRle = encodeAlphaRle(maskPixels);
+        if (preAutoState != null && Arrays.equals(preAutoState.rleMaskAlpha, afterRle)) {
+            return false;
         }
 
         if (preAutoState != null) {
@@ -749,7 +956,10 @@ public class BackgroundRemoverUI {
         syncRawMaskFromCurrent();
         if (modernSmoothSlider != null) modernSmoothSlider.setValue(0f);
         editorView.invalidate();
+        return true;
     }
+
+    /* ================= UI HELPERS & SMOOTHING ================= */
 
     private void disableZoomIfActive() {
         if (isZoomActive) {
