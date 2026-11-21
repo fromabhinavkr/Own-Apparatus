@@ -4,308 +4,462 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:paddingTop="16dp">
 
+    <!-- Header -->
     <TextView
         android:id="@+id/tvGamesTitle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Game Collection"
-        android:textSize="32sp"
-        android:textStyle="bold"
+        android:layout_marginTop="20dp"
         android:layout_marginBottom="4dp"
-        android:layout_marginTop="24dp"/>
+        android:text="Game Collection"
+        android:textSize="30sp"
+        android:textStyle="bold" />
 
     <TextView
         android:id="@+id/tvGamesSubtitle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
         android:text="Tap a game to start playing instantly."
-        android:textSize="14sp"
-        android:layout_marginBottom="24dp"/>
+        android:textSize="14sp" />
 
     <ScrollView
         android:id="@+id/scrollViewGames"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingBottom="24dp"
         android:scrollbars="none">
 
-        <!-- ID is required for the Landscape dynamic columns in Java -->
-        <GridLayout
-            android:id="@+id/gamesGridLayout"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:columnCount="2"
-            android:alignmentMode="alignMargins">
+            android:orientation="vertical">
 
-            <!-- Snake Game Card -->
+            <!-- ==================== RETRO SECTION ==================== -->
             <LinearLayout
-                android:id="@+id/cardSnakeGame"
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:orientation="vertical"
-                android:background="@drawable/bg_gallery_card"
-                android:clipToOutline="true"
-                android:layout_margin="8dp"
-                android:elevation="2dp">
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:layout_marginTop="4dp"
+                android:layout_marginBottom="10dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-                <ImageView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:adjustViewBounds="true"
-                    android:padding="16dp"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/gamesnake_preview" />
+                <View
+                    android:id="@+id/accentRetro"
+                    android:layout_width="4dp"
+                    android:layout_height="18dp"
+                    android:layout_marginEnd="10dp" />
 
                 <TextView
-                    android:id="@+id/textSnakeGame"
-                    android:layout_width="match_parent"
+                    android:id="@+id/tvSectionRetro"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:text="Play Snake"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:gravity="center"
-                    android:paddingBottom="16dp" />
-            </LinearLayout>
-
-            <!-- Flappy Bird Game Card -->
-            <LinearLayout
-                android:id="@+id/cardFlappyBird"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:orientation="vertical"
-                android:background="@drawable/bg_gallery_card"
-                android:clipToOutline="true"
-                android:layout_margin="8dp"
-                android:elevation="2dp">
-
-                <ImageView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:adjustViewBounds="true"
-                    android:padding="16dp"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/flappy_preview" />
+                    android:layout_weight="1"
+                    android:text="Retro"
+                    android:textSize="19sp"
+                    android:textStyle="bold" />
 
                 <TextView
-                    android:id="@+id/textFlappyBird"
-                    android:layout_width="match_parent"
+                    android:id="@+id/badgeRetro"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Play Flappy Bird"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:gravity="center"
-                    android:paddingBottom="16dp" />
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:paddingTop="3dp"
+                    android:paddingBottom="3dp"
+                    android:text="4 games"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
             </LinearLayout>
 
-            <!-- Tetris Game Card -->
-            <LinearLayout
-                android:id="@+id/cardTetris"
-                android:layout_width="0dp"
+            <GridLayout
+                android:id="@+id/gridRetroGames"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:orientation="vertical"
-                android:background="@drawable/bg_gallery_card"
-                android:clipToOutline="true"
-                android:layout_margin="8dp"
-                android:elevation="2dp">
+                android:alignmentMode="alignMargins"
+                android:columnCount="2">
 
-                <ImageView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:adjustViewBounds="true"
-                    android:padding="16dp"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/tetris_preview" />
-
-                <TextView
-                    android:id="@+id/textTetris"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Play Tetris"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:gravity="center"
-                    android:paddingBottom="16dp" />
-            </LinearLayout>
-
-            <!-- Breakout Game Card -->
-            <LinearLayout
-                android:id="@+id/cardBreakout"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:orientation="vertical"
-                android:background="@drawable/bg_gallery_card"
-                android:clipToOutline="true"
-                android:layout_margin="8dp"
-                android:elevation="2dp">
-
-                <ImageView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:adjustViewBounds="true"
-                    android:padding="16dp"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/breakout_preview" />
-
-                <TextView
-                    android:id="@+id/textBreakout"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Play Breakout"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:gravity="center"
-                    android:paddingBottom="16dp" />
-            </LinearLayout>
-
-            <!-- Maze Ball Game Card -->
-            <LinearLayout
-                android:id="@+id/cardMazeBall"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:orientation="vertical"
-                android:background="@drawable/bg_gallery_card"
-                android:clipToOutline="true"
-                android:layout_margin="8dp"
-                android:elevation="2dp">
-
-                <ImageView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:adjustViewBounds="true"
-                    android:padding="16dp"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/maze_game" />
-
-                <TextView
-                    android:id="@+id/textMazeBall"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Play Maze Ball"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:gravity="center"
-                    android:paddingBottom="16dp" />
-            </LinearLayout>
-
-            <!-- Play My Planet Game Card -->
-            <LinearLayout
-                android:id="@+id/cardMyPlanet"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:orientation="vertical"
-                android:background="@drawable/bg_gallery_card"
-                android:clipToOutline="true"
-                android:layout_margin="8dp"
-                android:elevation="2dp">
-
-                <ImageView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:adjustViewBounds="true"
-                    android:padding="16dp"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/myplanet_preview" />
-
+                <!-- 1. Snake -->
                 <LinearLayout
-                    android:layout_width="match_parent"
+                    android:id="@+id/cardSnakeGame"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center"
-                    android:paddingBottom="16dp">
+                    android:layout_columnWeight="1"
+                    android:layout_gravity="fill_horizontal"
+                    android:layout_margin="6dp"
+                    android:background="@drawable/bg_gallery_card"
+                    android:clickable="true"
+                    android:clipToOutline="true"
+                    android:elevation="2dp"
+                    android:focusable="true"
+                    android:orientation="vertical">
+
+                    <ImageView
+                        android:layout_width="match_parent"
+                        android:layout_height="116dp"
+                        android:padding="14dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/gamesnake_preview" />
 
                     <TextView
-                        android:id="@+id/textMyPlanet"
-                        android:layout_width="wrap_content"
+                        android:id="@+id/textSnakeGame"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Play My Planet"
-                        android:textSize="16sp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp"
+                        android:paddingBottom="14dp"
+                        android:singleLine="true"
+                        android:text="Snake"
+                        android:textSize="15sp"
                         android:textStyle="bold" />
+                </LinearLayout>
+
+                <!-- 2. Tetris -->
+                <LinearLayout
+                    android:id="@+id/cardTetris"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_columnWeight="1"
+                    android:layout_gravity="fill_horizontal"
+                    android:layout_margin="6dp"
+                    android:background="@drawable/bg_gallery_card"
+                    android:clickable="true"
+                    android:clipToOutline="true"
+                    android:elevation="2dp"
+                    android:focusable="true"
+                    android:orientation="vertical">
+
+                    <ImageView
+                        android:layout_width="match_parent"
+                        android:layout_height="116dp"
+                        android:padding="14dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/tetris_preview" />
 
                     <TextView
-                        android:id="@+id/btnHelpMyPlanet"
-                        android:layout_width="22dp"
-                        android:layout_height="22dp"
-                        android:layout_marginStart="8dp"
-                        android:text="\?"
-                        android:textSize="12sp"
-                        android:textStyle="bold"
+                        android:id="@+id/textTetris"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
                         android:gravity="center"
-                        android:clickable="true"
-                        android:focusable="true"/>
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp"
+                        android:paddingBottom="14dp"
+                        android:singleLine="true"
+                        android:text="Tetris"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
                 </LinearLayout>
-            </LinearLayout>
 
-            <!-- Thrive Game Card -->
-            <LinearLayout
-                android:id="@+id/cardThrive"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:orientation="vertical"
-                android:background="@drawable/bg_gallery_card"
-                android:clipToOutline="true"
-                android:layout_margin="8dp"
-                android:elevation="2dp">
-
-                <ImageView
-                    android:id="@+id/imgThrive"
-                    android:layout_width="match_parent"
+                <!-- 3. Maze Ball -->
+                <LinearLayout
+                    android:id="@+id/cardMazeBall"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:adjustViewBounds="true"
-                    android:padding="16dp"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/breakout_preview" />
+                    android:layout_columnWeight="1"
+                    android:layout_gravity="fill_horizontal"
+                    android:layout_margin="6dp"
+                    android:background="@drawable/bg_gallery_card"
+                    android:clickable="true"
+                    android:clipToOutline="true"
+                    android:elevation="2dp"
+                    android:focusable="true"
+                    android:orientation="vertical">
+
+                    <ImageView
+                        android:layout_width="match_parent"
+                        android:layout_height="116dp"
+                        android:padding="14dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/maze_game" />
+
+                    <TextView
+                        android:id="@+id/textMazeBall"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp"
+                        android:paddingBottom="14dp"
+                        android:singleLine="true"
+                        android:text="Maze Ball"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <!-- 4. Breakout -->
+                <LinearLayout
+                    android:id="@+id/cardBreakout"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_columnWeight="1"
+                    android:layout_gravity="fill_horizontal"
+                    android:layout_margin="6dp"
+                    android:background="@drawable/bg_gallery_card"
+                    android:clickable="true"
+                    android:clipToOutline="true"
+                    android:elevation="2dp"
+                    android:focusable="true"
+                    android:orientation="vertical">
+
+                    <ImageView
+                        android:layout_width="match_parent"
+                        android:layout_height="116dp"
+                        android:padding="14dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/breakout_preview" />
+
+                    <TextView
+                        android:id="@+id/textBreakout"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp"
+                        android:paddingBottom="14dp"
+                        android:singleLine="true"
+                        android:text="Breakout"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </GridLayout>
+
+            <!-- Divider -->
+            <View
+                android:id="@+id/dividerSections"
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginStart="6dp"
+                android:layout_marginEnd="6dp"
+                android:layout_marginTop="18dp"
+                android:layout_marginBottom="18dp" />
+
+            <!-- ==================== SPECIAL SECTION ==================== -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:layout_marginBottom="10dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <View
+                    android:id="@+id/accentSpecial"
+                    android:layout_width="4dp"
+                    android:layout_height="18dp"
+                    android:layout_marginEnd="10dp" />
 
                 <TextView
-                    android:id="@+id/textThrive"
-                    android:layout_width="match_parent"
+                    android:id="@+id/tvSectionSpecial"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:text="Play Rag Thrive"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:gravity="center"
-                    android:paddingBottom="16dp" />
-            </LinearLayout>
-
-            <!-- DriveOn Car Game Card -->
-            <LinearLayout
-                android:id="@+id/cardDriveOn"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_columnWeight="1"
-                android:orientation="vertical"
-                android:background="@drawable/bg_gallery_card"
-                android:clipToOutline="true"
-                android:layout_margin="8dp"
-                android:elevation="2dp">
-
-                <ImageView
-                    android:id="@+id/imgDriveOn"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:adjustViewBounds="true"
-                    android:padding="16dp"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/driveonicon" />
+                    android:layout_weight="1"
+                    android:text="Special"
+                    android:textSize="19sp"
+                    android:textStyle="bold" />
 
                 <TextView
-                    android:id="@+id/textDriveOn"
-                    android:layout_width="match_parent"
+                    android:id="@+id/badgeSpecial"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Play DriveOn"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:gravity="center"
-                    android:paddingBottom="16dp" />
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:paddingTop="3dp"
+                    android:paddingBottom="3dp"
+                    android:text="4 games"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
             </LinearLayout>
 
-        </GridLayout>
+            <GridLayout
+                android:id="@+id/gridSpecialGames"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:alignmentMode="alignMargins"
+                android:columnCount="2">
+
+                <!-- 1. Rag Thrive -->
+                <LinearLayout
+                    android:id="@+id/cardThrive"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_columnWeight="1"
+                    android:layout_gravity="fill_horizontal"
+                    android:layout_margin="6dp"
+                    android:background="@drawable/bg_gallery_card"
+                    android:clickable="true"
+                    android:clipToOutline="true"
+                    android:elevation="2dp"
+                    android:focusable="true"
+                    android:orientation="vertical">
+
+                    <ImageView
+                        android:id="@+id/imgThrive"
+                        android:layout_width="match_parent"
+                        android:layout_height="116dp"
+                        android:padding="14dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/breakout_preview" />
+
+                    <TextView
+                        android:id="@+id/textThrive"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp"
+                        android:paddingBottom="14dp"
+                        android:singleLine="true"
+                        android:text="Rag Thrive"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <!-- 2. Flappy Bird -->
+                <LinearLayout
+                    android:id="@+id/cardFlappyBird"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_columnWeight="1"
+                    android:layout_gravity="fill_horizontal"
+                    android:layout_margin="6dp"
+                    android:background="@drawable/bg_gallery_card"
+                    android:clickable="true"
+                    android:clipToOutline="true"
+                    android:elevation="2dp"
+                    android:focusable="true"
+                    android:orientation="vertical">
+
+                    <ImageView
+                        android:layout_width="match_parent"
+                        android:layout_height="116dp"
+                        android:padding="14dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/flappy_preview" />
+
+                    <TextView
+                        android:id="@+id/textFlappyBird"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp"
+                        android:paddingBottom="14dp"
+                        android:singleLine="true"
+                        android:text="Flappy Bird"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <!-- 3. DriveOn -->
+                <LinearLayout
+                    android:id="@+id/cardDriveOn"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_columnWeight="1"
+                    android:layout_gravity="fill_horizontal"
+                    android:layout_margin="6dp"
+                    android:background="@drawable/bg_gallery_card"
+                    android:clickable="true"
+                    android:clipToOutline="true"
+                    android:elevation="2dp"
+                    android:focusable="true"
+                    android:orientation="vertical">
+
+                    <ImageView
+                        android:id="@+id/imgDriveOn"
+                        android:layout_width="match_parent"
+                        android:layout_height="116dp"
+                        android:padding="14dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/driveonicon" />
+
+                    <TextView
+                        android:id="@+id/textDriveOn"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp"
+                        android:paddingBottom="14dp"
+                        android:singleLine="true"
+                        android:text="DriveOn"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <!-- 4. My Planet -->
+                <LinearLayout
+                    android:id="@+id/cardMyPlanet"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_columnWeight="1"
+                    android:layout_gravity="fill_horizontal"
+                    android:layout_margin="6dp"
+                    android:background="@drawable/bg_gallery_card"
+                    android:clickable="true"
+                    android:clipToOutline="true"
+                    android:elevation="2dp"
+                    android:focusable="true"
+                    android:orientation="vertical">
+
+                    <ImageView
+                        android:layout_width="match_parent"
+                        android:layout_height="116dp"
+                        android:padding="14dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/myplanet_preview" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:orientation="horizontal"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp"
+                        android:paddingBottom="14dp">
+
+                        <TextView
+                            android:id="@+id/textMyPlanet"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:ellipsize="end"
+                            android:singleLine="true"
+                            android:text="My Planet"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/btnHelpMyPlanet"
+                            android:layout_width="22dp"
+                            android:layout_height="22dp"
+                            android:layout_marginStart="6dp"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:gravity="center"
+                            android:text="\?"
+                            android:textSize="12sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+                </LinearLayout>
+            </GridLayout>
+
+        </LinearLayout>
     </ScrollView>
 </LinearLayout>

@@ -351,6 +351,14 @@ public class GlobeGameActivity extends AppCompatActivity {
         }
     }
 
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (ufoOverlay != null) {
+            ufoOverlay.stopGame();
+        }
+    }
+
     // --- MATHEMATICAL VECTOR ICON ENGINE ---
     public static class GameIconView extends View {
         public static final int ICON_SCORE = 1;
