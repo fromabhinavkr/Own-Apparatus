@@ -5,350 +5,64 @@
     android:layout_height="match_parent"
     android:fitsSystemWindows="true">
 
-    <FrameLayout
-        android:id="@+id/gameContainer"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+    <FrameLayout android:id="@+id/gameContainer" android:layout_width="match_parent" android:layout_height="match_parent" />
 
-    <RelativeLayout
-        android:id="@+id/topHud"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_alignParentTop="true"
-        android:paddingStart="24dp"
-        android:paddingEnd="16dp"
-        android:paddingTop="24dp"
-        android:paddingBottom="12dp"
-        android:elevation="0dp">
-
-        <!-- Unified Smart Pill: Centered horizontally -->
-        <LinearLayout
-            android:id="@+id/btnPause"
-            android:layout_width="wrap_content"
-            android:layout_height="52dp"
-            android:layout_centerHorizontal="true"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingEnd="20dp"
-            android:paddingStart="6dp"
-            android:clickable="true"
-            android:focusable="true">
-
-            <FrameLayout
-                android:id="@+id/pauseIconContainer"
-                android:layout_width="40dp"
-                android:layout_height="40dp" />
-
-            <!-- FrameLayout to handle Letter-by-Letter overlapping perfectly -->
-            <FrameLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="10dp"
-                android:layout_gravity="center_vertical">
-
-                <!-- Tap to Fly (Hidden initially, shown after character select) -->
-                <TextView
-                    android:id="@+id/tvTapToStart"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Tap to Fly"
-                    android:textSize="15sp"
-                    android:textStyle="bold"
-                    android:visibility="gone"
-                    android:singleLine="true"
-                    android:layout_gravity="center_vertical" />
-
-                <!-- Score Container (Hidden when Tap to Fly is visible) -->
-                <LinearLayout
-                    android:id="@+id/scoreContainer"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:visibility="gone">
-
-                    <TextView
-                        android:id="@+id/tvCurrentScore"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Score: 0"
-                        android:textSize="15sp"
-                        android:singleLine="true"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/tvHighScore"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Best: 0"
-                        android:textSize="11sp"
-                        android:singleLine="true"
-                        android:textStyle="bold" />
+    <RelativeLayout android:id="@+id/topHud" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_alignParentTop="true" android:paddingStart="24dp" android:paddingEnd="16dp" android:paddingTop="24dp" android:paddingBottom="12dp" android:elevation="0dp">
+        <LinearLayout android:id="@+id/btnPause" android:layout_width="wrap_content" android:layout_height="52dp" android:layout_centerHorizontal="true" android:gravity="center_vertical" android:orientation="horizontal" android:paddingEnd="20dp" android:paddingStart="6dp" android:clickable="true" android:focusable="true">
+            <FrameLayout android:id="@+id/pauseIconContainer" android:layout_width="40dp" android:layout_height="40dp" />
+            <FrameLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="10dp" android:layout_gravity="center_vertical">
+                <TextView android:id="@+id/tvTapToStart" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Tap to Fly" android:textSize="15sp" android:textStyle="bold" android:visibility="gone" android:singleLine="true" android:layout_gravity="center_vertical" />
+                <LinearLayout android:id="@+id/scoreContainer" android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
+                    <TextView android:id="@+id/tvCurrentScore" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Score: 0" android:textSize="15sp" android:singleLine="true" android:textStyle="bold" />
+                    <TextView android:id="@+id/tvHighScore" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Best: 0" android:textSize="11sp" android:singleLine="true" android:textStyle="bold" />
                 </LinearLayout>
             </FrameLayout>
         </LinearLayout>
     </RelativeLayout>
 
-    <!-- CHARACTER SELECTION OVERLAY WITH IMAGES & STATS -->
-    <RelativeLayout
-        android:id="@+id/characterSelectionOverlay"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="#DD000000"
-        android:visibility="visible"
-        android:elevation="20dp">
-
-        <LinearLayout
-            android:id="@+id/characterSelectionCard"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_centerInParent="true"
-            android:layout_marginHorizontal="28dp"
-            android:orientation="vertical"
-            android:paddingTop="32dp"
-            android:paddingBottom="40dp"
-            android:paddingHorizontal="24dp"
-            android:gravity="center">
-
-            <TextView
-                android:id="@+id/tvSelectTitle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="CHOOSE YOUR BIRD"
-                android:textSize="22sp"
-                android:textStyle="bold"
-                android:layout_marginBottom="24dp" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center">
-
-                <LinearLayout
-                    android:id="@+id/btnSelectClassic"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:padding="16dp"
-                    android:layout_marginEnd="8dp"
-                    android:clickable="true"
-                    android:focusable="true">
-
-                    <ImageView
-                        android:id="@+id/ivClassicPreview"
-                        android:layout_width="50dp"
-                        android:layout_height="50dp"
-                        android:layout_marginBottom="12dp"/>
-
-                    <TextView
-                        android:id="@+id/tvClassicTitle"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Classic"
-                        android:textSize="16sp"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/tvClassicStats"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Played: 0\nBest: 0"
-                        android:gravity="center"
-                        android:textSize="12sp"
-                        android:layout_marginTop="6dp" />
+    <RelativeLayout android:id="@+id/characterSelectionOverlay" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#DD000000" android:visibility="visible" android:elevation="20dp">
+        <LinearLayout android:id="@+id/characterSelectionCard" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_centerInParent="true" android:layout_marginHorizontal="28dp" android:orientation="vertical" android:paddingTop="32dp" android:paddingBottom="40dp" android:paddingHorizontal="24dp" android:gravity="center">
+            <TextView android:id="@+id/tvSelectTitle" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="CHOOSE YOUR BIRD" android:textSize="22sp" android:textStyle="bold" android:layout_marginBottom="24dp" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center">
+                <LinearLayout android:id="@+id/btnSelectClassic" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center" android:padding="16dp" android:layout_marginEnd="8dp" android:clickable="true" android:focusable="true">
+                    <ImageView android:id="@+id/ivClassicPreview" android:layout_width="50dp" android:layout_height="50dp" android:layout_marginBottom="12dp" />
+                    <TextView android:id="@+id/tvClassicTitle" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Classic" android:textSize="16sp" android:textStyle="bold" />
+                    <TextView android:id="@+id/tvClassicStats" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Played: 0\nBest: 0" android:gravity="center" android:textSize="12sp" android:layout_marginTop="6dp" />
                 </LinearLayout>
-
-                <LinearLayout
-                    android:id="@+id/btnSelectGoo"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:padding="16dp"
-                    android:layout_marginStart="8dp"
-                    android:clickable="true"
-                    android:focusable="true">
-
-                    <ImageView
-                        android:id="@+id/ivGooPreview"
-                        android:layout_width="50dp"
-                        android:layout_height="50dp"
-                        android:layout_marginBottom="12dp"/>
-
-                    <TextView
-                        android:id="@+id/tvGooTitle"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Clov Bird"
-                        android:textSize="16sp"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/tvGooStats"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Played: 0\nBest: 0"
-                        android:gravity="center"
-                        android:textSize="12sp"
-                        android:layout_marginTop="6dp" />
+                <LinearLayout android:id="@+id/btnSelectGoo" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center" android:padding="16dp" android:layout_marginStart="8dp" android:clickable="true" android:focusable="true">
+                    <ImageView android:id="@+id/ivGooPreview" android:layout_width="50dp" android:layout_height="50dp" android:layout_marginBottom="12dp" />
+                    <TextView android:id="@+id/tvGooTitle" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Clov Bird" android:textSize="16sp" android:textStyle="bold" />
+                    <TextView android:id="@+id/tvGooStats" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Played: 0\nBest: 0" android:gravity="center" android:textSize="12sp" android:layout_marginTop="6dp" />
                 </LinearLayout>
             </LinearLayout>
         </LinearLayout>
     </RelativeLayout>
 
-    <RelativeLayout
-        android:id="@+id/pauseOverlay"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="#99000000"
-        android:visibility="gone"
-        android:elevation="10dp"
-        android:clipToPadding="false"
-        android:clipChildren="false">
-
-        <LinearLayout
-            android:id="@+id/pauseCard"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_centerInParent="true"
-            android:layout_marginHorizontal="28dp"
-            android:orientation="vertical"
-            android:paddingTop="32dp"
-            android:paddingBottom="44dp"
-            android:paddingHorizontal="24dp"
-            android:gravity="center">
-
-            <TextView
-                android:id="@+id/tvPauseTitle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="PAUSED"
-                android:textSize="26sp"
-                android:textStyle="bold"
-                android:layout_marginBottom="24dp" />
-
-            <Button
-                android:id="@+id/btnResume"
-                android:layout_width="match_parent"
-                android:layout_height="56dp"
-                android:textSize="16sp"
-                android:backgroundTint="#34C759"
-                android:textColor="#FFFFFF"
-                android:textStyle="bold"
-                android:text="Resume Game" />
-
-            <Button
-                android:id="@+id/btnToggleVibration"
-                android:layout_width="match_parent"
-                android:layout_height="56dp"
-                android:textSize="16sp"
-                android:backgroundTint="#8E8E93"
-                android:textColor="#FFFFFF"
-                android:textStyle="bold"
-                android:layout_marginTop="12dp"
-                android:text="Vibration: ON" />
-
-            <Button
-                android:id="@+id/btnQuitFromPause"
-                android:layout_width="match_parent"
-                android:layout_height="56dp"
-                android:textSize="16sp"
-                android:backgroundTint="#FF3B30"
-                android:textColor="#FFFFFF"
-                android:textStyle="bold"
-                android:layout_marginTop="12dp"
-                android:text="Exit Game" />
+    <RelativeLayout android:id="@+id/pauseOverlay" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#99000000" android:visibility="gone" android:elevation="10dp" android:clipToPadding="false" android:clipChildren="false">
+        <LinearLayout android:id="@+id/pauseCard" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_centerInParent="true" android:layout_marginHorizontal="28dp" android:orientation="vertical" android:paddingTop="32dp" android:paddingBottom="44dp" android:paddingHorizontal="24dp" android:gravity="center">
+            <TextView android:id="@+id/tvPauseTitle" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="PAUSED" android:textSize="26sp" android:textStyle="bold" android:layout_marginBottom="24dp" />
+            <Button android:id="@+id/btnResume" android:layout_width="match_parent" android:layout_height="56dp" android:textSize="16sp" android:backgroundTint="#34C759" android:textColor="#FFFFFF" android:textStyle="bold" android:text="Resume Game" />
+            <Button android:id="@+id/btnToggleSound" android:layout_width="match_parent" android:layout_height="56dp" android:textSize="16sp" android:backgroundTint="#8E8E93" android:textColor="#FFFFFF" android:textStyle="bold" android:layout_marginTop="12dp" android:text="Sound: ON" />
+            <Button android:id="@+id/btnToggleMusic" android:layout_width="match_parent" android:layout_height="56dp" android:textSize="16sp" android:backgroundTint="#8E8E93" android:textColor="#FFFFFF" android:textStyle="bold" android:layout_marginTop="12dp" android:text="Music: ON" />
+            <Button android:id="@+id/btnToggleVibration" android:layout_width="match_parent" android:layout_height="56dp" android:textSize="16sp" android:backgroundTint="#8E8E93" android:textColor="#FFFFFF" android:textStyle="bold" android:layout_marginTop="12dp" android:text="Vibration: ON" />
+            <Button android:id="@+id/btnQuitFromPause" android:layout_width="match_parent" android:layout_height="56dp" android:textSize="16sp" android:backgroundTint="#FF3B30" android:textColor="#FFFFFF" android:textStyle="bold" android:layout_marginTop="12dp" android:text="Exit Game" />
         </LinearLayout>
     </RelativeLayout>
 
-    <RelativeLayout
-        android:id="@+id/gameOverOverlay"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="#99000000"
-        android:visibility="gone"
-        android:elevation="10dp"
-        android:clipToPadding="false"
-        android:clipChildren="false">
-
-        <LinearLayout
-            android:id="@+id/gameOverCard"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_centerInParent="true"
-            android:layout_marginHorizontal="28dp"
-            android:orientation="vertical"
-            android:paddingTop="28dp"
-            android:paddingBottom="44dp"
-            android:paddingHorizontal="24dp"
-            android:gravity="center">
-
-            <FrameLayout
-                android:id="@+id/snapshotContainer"
-                android:layout_width="130dp"
-                android:layout_height="130dp"
-                android:layout_marginBottom="16dp"
-                android:visibility="gone">
-
-                <ImageView
-                    android:id="@+id/ivDeathSnapshot"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:scaleType="centerCrop" />
+    <RelativeLayout android:id="@+id/gameOverOverlay" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#99000000" android:visibility="gone" android:elevation="10dp" android:clipToPadding="false" android:clipChildren="false">
+        <LinearLayout android:id="@+id/gameOverCard" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_centerInParent="true" android:layout_marginHorizontal="28dp" android:orientation="vertical" android:paddingTop="28dp" android:paddingBottom="44dp" android:paddingHorizontal="24dp" android:gravity="center">
+            <FrameLayout android:id="@+id/snapshotContainer" android:layout_width="130dp" android:layout_height="130dp" android:layout_marginBottom="16dp" android:visibility="gone">
+                <ImageView android:id="@+id/ivDeathSnapshot" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="centerCrop" />
             </FrameLayout>
-
-            <TextView
-                android:id="@+id/tvGameOverTitle"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="GAME OVER"
-                android:textStyle="bold"
-                android:textSize="32sp"
-                android:gravity="center"
-                android:layout_marginBottom="8dp" />
-
-            <TextView
-                android:id="@+id/tvNewHighScoreBanner"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="NEW HIGH SCORE!"
-                android:textColor="#FFD700"
-                android:textSize="18sp"
-                android:textStyle="bold"
-                android:gravity="center"
-                android:visibility="gone"
-                android:layout_marginBottom="16dp" />
-
-            <TextView
-                android:id="@+id/tvFinalScore"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Score: 0"
-                android:textStyle="bold"
-                android:textSize="22sp"
-                android:layout_marginBottom="24dp" />
-
-            <Button
-                android:id="@+id/btnRestart"
-                android:layout_width="match_parent"
-                android:layout_height="56dp"
-                android:textSize="16sp"
-                android:backgroundTint="#4A90E2"
-                android:textColor="#FFFFFF"
-                android:textStyle="bold"
-                android:text="Play Again" />
-
-            <Button
-                android:id="@+id/btnQuit"
-                android:layout_width="match_parent"
-                android:layout_height="56dp"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                android:layout_marginTop="12dp"
-                android:text="Quit" />
+            <TextView android:id="@+id/tvGameOverTitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="GAME OVER" android:textStyle="bold" android:textSize="32sp" android:gravity="center" android:layout_marginBottom="8dp" />
+            <TextView android:id="@+id/tvNewHighScoreBanner" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="NEW HIGH SCORE!" android:textColor="#FFD700" android:textSize="18sp" android:textStyle="bold" android:gravity="center" android:visibility="gone" android:layout_marginBottom="16dp" />
+            <TextView android:id="@+id/tvFinalScore" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Score: 0" android:textStyle="bold" android:textSize="22sp" android:layout_marginBottom="24dp" />
+            <Button android:id="@+id/btnRestart" android:layout_width="match_parent" android:layout_height="56dp" android:textSize="16sp" android:backgroundTint="#4A90E2" android:textColor="#FFFFFF" android:textStyle="bold" android:text="Play Again" />
+            <Button android:id="@+id/btnQuit" android:layout_width="match_parent" android:layout_height="56dp" android:textSize="16sp" android:textStyle="bold" android:layout_marginTop="12dp" android:text="Quit" />
         </LinearLayout>
+    </RelativeLayout>
+
+    <RelativeLayout android:id="@+id/launchLoadingOverlay" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#FFFFFF" android:visibility="visible" android:elevation="40dp" android:clickable="true" android:focusable="true">
+        <ImageView android:id="@+id/ivLoadingIcon" android:layout_width="148dp" android:layout_height="148dp" android:layout_centerInParent="true" android:scaleType="fitCenter" />
     </RelativeLayout>
 </RelativeLayout>
