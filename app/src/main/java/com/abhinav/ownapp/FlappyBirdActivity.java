@@ -409,8 +409,8 @@ public class FlappyBirdActivity extends AppCompatActivity {
 
     public static class FlappyAudioEngine {
         private static final int SAMPLE_RATE = 44100;
-        private volatile boolean soundEnabled = true, musicEnabled = true, hostActive = false, introFinished = false, released = false;
-        private final short[] classicHappyPcm, clovHappyPcm, classicCryPcm, clovCryPcm, powerUpPcm, musicLoopPcm;
+        private volatile boolean soundEnabled = true, musicEnabled = true, hostActive = false, introFinished = false, released = false, pcmReady = false;
+        private volatile short[] classicHappyPcm, clovHappyPcm, classicCryPcm, clovCryPcm, powerUpPcm, musicLoopPcm;
         private final Object voiceLock = new Object();
         private final short[][] voicePcms = new short[6][];
         private final int[] voicePos = new int[6];
@@ -419,9 +419,19 @@ public class FlappyBirdActivity extends AppCompatActivity {
         private AudioTrack activeTrack = null;
 
         public FlappyAudioEngine() {
-            classicHappyPcm = buildClassicHappyPcm(); clovHappyPcm = buildClovHappyPcm();
-            classicCryPcm = buildClassicCryPcm(); clovCryPcm = buildClovCryPcm();
-            powerUpPcm = buildPowerUpPcm(); musicLoopPcm = buildMusicLoopPcm();
+            Thread initThread = new Thread(() -> {
+                if (released) return;
+                short[] cHappy = buildClassicHappyPcm(); if (released) return;
+                short[] vHappy = buildClovHappyPcm(); if (released) return;
+                short[] cCry = buildClassicCryPcm(); if (released) return;
+                short[] vCry = buildClovCryPcm(); if (released) return;
+                short[] pUp = buildPowerUpPcm(); if (released) return;
+                short[] mLoop = buildMusicLoopPcm(); if (released) return;
+                classicHappyPcm = cHappy; clovHappyPcm = vHappy; classicCryPcm = cCry; clovCryPcm = vCry; powerUpPcm = pUp; musicLoopPcm = mLoop;
+                pcmReady = true;
+                updateAudioState();
+            });
+            initThread.setDaemon(true); initThread.start();
         }
 
         public synchronized void setSoundEnabled(boolean enabled) {
@@ -437,7 +447,7 @@ public class FlappyBirdActivity extends AppCompatActivity {
         public synchronized void release() { released = true; hostActive = false; stopAudioLoop(); }
 
         private synchronized void updateAudioState() {
-            boolean needStream = hostActive && !released && introFinished && (musicEnabled || soundEnabled);
+            boolean needStream = hostActive && !released && introFinished && pcmReady && (musicEnabled || soundEnabled);
             if (needStream) { if (currentStopFlag == null) startAudioLoop(); } else { stopAudioLoop(); }
         }
 
@@ -584,7 +594,7 @@ public class FlappyBirdActivity extends AppCompatActivity {
         public void playPowerUp() { queueVoice(powerUpPcm); }
 
         private synchronized void startAudioLoop() {
-            if (currentStopFlag != null || released) return;
+            if (currentStopFlag != null || released || !pcmReady) return;
             final boolean[] stopFlag = { false }; currentStopFlag = stopFlag;
             Thread mixerThread = new Thread(() -> {
                 AudioTrack track = null;
@@ -596,7 +606,8 @@ public class FlappyBirdActivity extends AppCompatActivity {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) track.setVolume(1.0f);
                         track.play(); short[] mixBuf = new short[512];
                         while (!stopFlag[0] && hostActive && !released) {
-                            if (musicEnabled && introFinished) { for (int i = 0; i < mixBuf.length; i++) { mixBuf[i] = musicLoopPcm[musicPos]; if (++musicPos >= musicLoopPcm.length) musicPos = 0; } }
+                            short[] mLoop = musicLoopPcm;
+                            if (musicEnabled && introFinished && mLoop != null) { for (int i = 0; i < mixBuf.length; i++) { mixBuf[i] = mLoop[musicPos]; if (++musicPos >= mLoop.length) musicPos = 0; } }
                             else { Arrays.fill(mixBuf, (short) 0); }
                             if (soundEnabled) {
                                 synchronized (voiceLock) {
@@ -648,6 +659,8 @@ public class FlappyBirdActivity extends AppCompatActivity {
         private static final long TIME_STEP_NS = 1000000000L / 60L;
         private final List<Pipe> pipes = new ArrayList<>();
         private boolean playing = false, paused = false, gameOver = false, vibrationEnabled = true, isImmune = false, isReady = false, gooDying = false, shootingStarActive = false;
+        private volatile boolean detached = false, cityBuildPending = false;
+        private volatile int bgBuildGen = 0;
         private int score = 0, pointsSinceLastWorm = 0, birdType = 0, currentFrameIndex = 0, sequenceIndex = 0, trailHead = 0, trailCount = 0, shootingStarCooldown = 140;
         private float sparkleAngle = 0f, animationTick = 0, gooDeathSpin = 0f, layerTileW = 0f, bgAmbientTick = 0f, ssX, ssY, ssVx, ssVy, ssLife, ssMaxLife;
         private Bitmap[] birdBitmaps;
@@ -718,7 +731,11 @@ public class FlappyBirdActivity extends AppCompatActivity {
 
         public void setBirdType(int type) {
             this.birdType = type;
-            loadBirdSprite(); isReady = true; if (screenW > 0 && screenH > 0) ensureSceneLayersForBirdType(); invalidate();
+            loadBirdSprite(); isReady = true;
+            if (screenW > 0 && screenH > 0 && type == 1 && (cityBackBmp == null || cityBackBmp.isRecycled()) && !cityBuildPending) {
+                buildCityLayersAsync();
+            }
+            invalidate();
         }
 
         private void loadBirdSprite() {
@@ -739,6 +756,7 @@ public class FlappyBirdActivity extends AppCompatActivity {
         }
 
         private void recycleBitmap(Bitmap b) { if (b != null && !b.isRecycled()) b.recycle(); }
+        private void recycleBitmapArray(Bitmap[] arr) { if (arr != null) for (Bitmap b : arr) recycleBitmap(b); }
         private void recycleBackgroundBitmaps() {
             recycleBitmap(celestialBmp); celestialBmp = null; recycleBitmap(farCloudBmp); farCloudBmp = null; recycleBitmap(nearCloudBmp); nearCloudBmp = null;
             recycleBitmap(farMountainBmp); farMountainBmp = null; recycleBitmap(midMountainBmp); midMountainBmp = null; recycleBitmap(foreForestBmp); foreForestBmp = null;
@@ -748,19 +766,12 @@ public class FlappyBirdActivity extends AppCompatActivity {
             recycleBitmap(classicPipeBodyBmp); classicPipeBodyBmp = null; recycleBitmap(classicPipeCapBmp); classicPipeCapBmp = null;
             recycleBitmap(clovPipeBodyBmp); clovPipeBodyBmp = null; recycleBitmap(clovPipeCapBmp); clovPipeCapBmp = null; recycleBitmap(elecFlashBmp); elecFlashBmp = null;
         }
-        @Override protected void onDetachedFromWindow() { super.onDetachedFromWindow(); recycleBackgroundBitmaps(); }
+        @Override protected void onDetachedFromWindow() { super.onDetachedFromWindow(); detached = true; bgBuildGen++; recycleBackgroundBitmaps(); }
 
-        // Pre-renders high-detail 3D cylindrical enameled pillars (Classic) & brushed-steel Tesla coil towers (Clov)
-        private void buildPipeBitmaps() {
-            recycleBitmap(classicPipeBodyBmp); classicPipeBodyBmp = null; recycleBitmap(classicPipeCapBmp); classicPipeCapBmp = null;
-            recycleBitmap(clovPipeBodyBmp); clovPipeBodyBmp = null; recycleBitmap(clovPipeCapBmp); clovPipeCapBmp = null;
-            recycleBitmap(elecFlashBmp); elecFlashBmp = null;
-
-            int bw = Math.max(96, (int) pipeWidth), capExtPx = Math.max(8, (int) (refW * 0.015f));
-            int cw = bw + capExtPx * 2, ch = Math.max(44, (int) (refH * 0.04f));
+        private Bitmap[] createPipeBitmaps(float pWidth, float rW, float rH) {
+            int bw = Math.max(96, (int) pWidth), capExtPx = Math.max(8, (int) (rW * 0.015f)), cw = bw + capExtPx * 2, ch = Math.max(44, (int) (rH * 0.04f));
             Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
 
-            // 1. CLASSIC BIRD: 3D Enameled Emerald/Jade Cylindrical Pillars (Theme-calibrated)
             int[] cCols; int cOutline, cTopHi, cBotSh, cGroove;
             if (themeState == 0) {
                 cCols = new int[]{Color.parseColor("#2A5714"), Color.parseColor("#54A024"), Color.parseColor("#8FE048"), Color.parseColor("#E8FFB8"), Color.parseColor("#99E650"), Color.parseColor("#5EAD26"), Color.parseColor("#3B7A18"), Color.parseColor("#21470E"), Color.parseColor("#3E7B1C")};
@@ -774,33 +785,22 @@ public class FlappyBirdActivity extends AppCompatActivity {
             }
             float[] cStops = {0.00f, 0.08f, 0.20f, 0.29f, 0.37f, 0.54f, 0.76f, 0.91f, 1.00f};
 
-            classicPipeBodyBmp = Bitmap.createBitmap(bw, 64, Bitmap.Config.ARGB_8888);
-            Canvas cbc = new Canvas(classicPipeBodyBmp);
-            p.setShader(new LinearGradient(0, 0, bw, 0, cCols, cStops, Shader.TileMode.CLAMP));
-            cbc.drawRect(0, 0, bw, 64, p); p.setShader(null);
-            // Razor-crisp secondary glossy reflection stripe & crisp border edges
+            Bitmap cBody = Bitmap.createBitmap(bw, 64, Bitmap.Config.ARGB_8888); Canvas cbc = new Canvas(cBody);
+            p.setShader(new LinearGradient(0, 0, bw, 0, cCols, cStops, Shader.TileMode.CLAMP)); cbc.drawRect(0, 0, bw, 64, p); p.setShader(null);
             p.setColor(Color.argb(themeState == 0 ? 135 : 95, 255, 255, 240)); cbc.drawRect(bw * 0.255f, 0, bw * 0.295f, 64, p);
             p.setColor(Color.argb(60, 255, 255, 255)); cbc.drawRect(bw * 0.34f, 0, bw * 0.365f, 64, p);
             p.setColor(cOutline); cbc.drawRect(0, 0, Math.max(3f, bw * 0.032f), 64, p); cbc.drawRect(bw - Math.max(3f, bw * 0.032f), 0, bw, 64, p);
 
-            classicPipeCapBmp = Bitmap.createBitmap(cw, ch, Bitmap.Config.ARGB_8888);
-            Canvas ccc = new Canvas(classicPipeCapBmp);
+            Bitmap cCap = Bitmap.createBitmap(cw, ch, Bitmap.Config.ARGB_8888); Canvas ccc = new Canvas(cCap);
             RectF cCapR = new RectF(2f, 2f, cw - 2f, ch - 2f); float cRad = Math.min(12f, ch * 0.22f);
-            p.setShader(new LinearGradient(0, 0, cw, 0, cCols, cStops, Shader.TileMode.CLAMP));
-            ccc.drawRoundRect(cCapR, cRad, cRad, p); p.setShader(null);
-            // Top bevel light & bottom bevel shade
+            p.setShader(new LinearGradient(0, 0, cw, 0, cCols, cStops, Shader.TileMode.CLAMP)); ccc.drawRoundRect(cCapR, cRad, cRad, p);
             p.setShader(new LinearGradient(0, 2f, 0, ch * 0.28f, cTopHi, Color.TRANSPARENT, Shader.TileMode.CLAMP)); ccc.drawRoundRect(cCapR, cRad, cRad, p);
-            p.setShader(new LinearGradient(0, ch * 0.72f, 0, ch - 2f, Color.TRANSPARENT, cBotSh, Shader.TileMode.CLAMP)); ccc.drawRoundRect(cCapR, cRad, cRad, p);
-            p.setShader(null);
-            // Machined decorative collar bands & crisp glossy reflection
+            p.setShader(new LinearGradient(0, ch * 0.72f, 0, ch - 2f, Color.TRANSPARENT, cBotSh, Shader.TileMode.CLAMP)); ccc.drawRoundRect(cCapR, cRad, cRad, p); p.setShader(null);
             p.setColor(Color.argb(themeState == 0 ? 155 : 110, 255, 255, 240)); ccc.drawRect(cw * 0.255f, 4f, cw * 0.298f, ch - 4f, p);
             p.setColor(cGroove); ccc.drawRect(4f, ch * 0.24f, cw - 4f, ch * 0.24f + 2.2f, p); ccc.drawRect(4f, ch * 0.76f, cw - 4f, ch * 0.76f + 2.2f, p);
             p.setColor(Color.argb(70, 255, 255, 255)); ccc.drawRect(4f, ch * 0.24f + 2.2f, cw - 4f, ch * 0.24f + 4.0f, p);
-            // Outer sculpted dark border
-            p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(Math.max(3.5f, bw * 0.036f)); p.setColor(cOutline);
-            ccc.drawRoundRect(cCapR, cRad, cRad, p); p.setStyle(Paint.Style.FILL);
+            p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(Math.max(3.5f, bw * 0.036f)); p.setColor(cOutline); ccc.drawRoundRect(cCapR, cRad, cRad, p); p.setStyle(Paint.Style.FILL);
 
-            // 2. CLOV BIRD: 3D Brushed Titanium / Industrial High-Voltage Tesla Pillars
             int[] mCols; int mOutline, mGlowCol, mRivetLight, mRivetDark;
             if (themeState == 0) {
                 mCols = new int[]{Color.parseColor("#3B4754"), Color.parseColor("#6E7F91"), Color.parseColor("#B5C6D6"), Color.parseColor("#F5FAFF"), Color.parseColor("#C2D2E0"), Color.parseColor("#7C8FA1"), Color.parseColor("#4B5A69"), Color.parseColor("#29333D"), Color.parseColor("#5B778F")};
@@ -814,83 +814,53 @@ public class FlappyBirdActivity extends AppCompatActivity {
             }
             float[] mStops = {0.00f, 0.08f, 0.21f, 0.29f, 0.36f, 0.52f, 0.76f, 0.91f, 1.00f};
 
-            clovPipeBodyBmp = Bitmap.createBitmap(bw, 64, Bitmap.Config.ARGB_8888);
-            Canvas mbc = new Canvas(clovPipeBodyBmp);
-            p.setShader(new LinearGradient(0, 0, bw, 0, mCols, mStops, Shader.TileMode.CLAMP));
-            mbc.drawRect(0, 0, bw, 64, p); p.setShader(null);
-            // Vertical brushed metal specular gleam + recessed glowing plasma conduit groove
+            Bitmap mBody = Bitmap.createBitmap(bw, 64, Bitmap.Config.ARGB_8888); Canvas mbc = new Canvas(mBody);
+            p.setShader(new LinearGradient(0, 0, bw, 0, mCols, mStops, Shader.TileMode.CLAMP)); mbc.drawRect(0, 0, bw, 64, p); p.setShader(null);
             p.setColor(Color.argb(145, 240, 250, 255)); mbc.drawRect(bw * 0.26f, 0, bw * 0.295f, 64, p);
-            float condL = bw * 0.45f, condR = bw * 0.55f;
-            p.setColor(Color.argb(160, 10, 22, 34)); mbc.drawRect(condL, 0, condR, 64, p);
-            p.setShader(new LinearGradient(condL, 0, condR, 0, new int[]{Color.TRANSPARENT, mGlowCol, Color.WHITE, mGlowCol, Color.TRANSPARENT}, new float[]{0f, 0.28f, 0.5f, 0.72f, 1f}, Shader.TileMode.CLAMP));
-            mbc.drawRect(condL, 0, condR, 64, p); p.setShader(null);
+            float condL = bw * 0.45f, condR = bw * 0.55f; p.setColor(Color.argb(160, 10, 22, 34)); mbc.drawRect(condL, 0, condR, 64, p);
+            p.setShader(new LinearGradient(condL, 0, condR, 0, new int[]{Color.TRANSPARENT, mGlowCol, Color.WHITE, mGlowCol, Color.TRANSPARENT}, new float[]{0f, 0.28f, 0.5f, 0.72f, 1f}, Shader.TileMode.CLAMP)); mbc.drawRect(condL, 0, condR, 64, p); p.setShader(null);
             p.setColor(mOutline); mbc.drawRect(0, 0, Math.max(3f, bw * 0.034f), 64, p); mbc.drawRect(bw - Math.max(3f, bw * 0.034f), 0, bw, 64, p);
 
-            clovPipeCapBmp = Bitmap.createBitmap(cw, ch, Bitmap.Config.ARGB_8888);
-            Canvas mcc = new Canvas(clovPipeCapBmp);
+            Bitmap mCap = Bitmap.createBitmap(cw, ch, Bitmap.Config.ARGB_8888); Canvas mcc = new Canvas(mCap);
             RectF mCapR = new RectF(2f, 2f, cw - 2f, ch - 2f); float mRad = Math.min(10f, ch * 0.20f);
-            p.setShader(new LinearGradient(0, 0, cw, 0, mCols, mStops, Shader.TileMode.CLAMP));
-            mcc.drawRoundRect(mCapR, mRad, mRad, p); p.setShader(null);
-            // Metallic top/bottom chamfers
+            p.setShader(new LinearGradient(0, 0, cw, 0, mCols, mStops, Shader.TileMode.CLAMP)); mcc.drawRoundRect(mCapR, mRad, mRad, p);
             p.setShader(new LinearGradient(0, 2f, 0, ch * 0.26f, Color.parseColor("#AAFFFFFF"), Color.TRANSPARENT, Shader.TileMode.CLAMP)); mcc.drawRoundRect(mCapR, mRad, mRad, p);
-            p.setShader(new LinearGradient(0, ch * 0.74f, 0, ch - 2f, Color.TRANSPARENT, Color.parseColor("#99040A12"), Shader.TileMode.CLAMP)); mcc.drawRoundRect(mCapR, mRad, mRad, p);
-            p.setShader(null);
-            // Recessed high-voltage glowing plasma emitter channel across center of collar
-            float bandTop = ch * 0.38f, bandBot = ch * 0.62f;
-            p.setColor(Color.parseColor("#CC0A1826")); mcc.drawRect(6f, bandTop - 2f, cw - 6f, bandBot + 2f, p);
-            p.setShader(new LinearGradient(0, bandTop, 0, bandBot, new int[]{Color.parseColor("#4400B8FF"), mGlowCol, Color.WHITE, mGlowCol, Color.parseColor("#4400B8FF")}, new float[]{0f, 0.25f, 0.5f, 0.75f, 1f}, Shader.TileMode.CLAMP));
-            mcc.drawRect(8f, bandTop, cw - 8f, bandBot, p); p.setShader(null);
-            // Industrial bolts / electrode rivets flanking the collar
-            float[] rivetXs = {cw * 0.12f, cw * 0.88f};
-            for (float rx : rivetXs) {
-                p.setColor(mRivetDark); mcc.drawCircle(rx + 1f, ch * 0.5f + 1f, ch * 0.14f, p);
-                p.setColor(mRivetLight); mcc.drawCircle(rx, ch * 0.5f, ch * 0.11f, p);
-                p.setColor(mGlowCol); mcc.drawCircle(rx, ch * 0.5f, ch * 0.055f, p);
-            }
-            p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(Math.max(3.5f, bw * 0.036f)); p.setColor(mOutline);
-            mcc.drawRoundRect(mCapR, mRad, mRad, p); p.setStyle(Paint.Style.FILL);
+            p.setShader(new LinearGradient(0, ch * 0.74f, 0, ch - 2f, Color.TRANSPARENT, Color.parseColor("#99040A12"), Shader.TileMode.CLAMP)); mcc.drawRoundRect(mCapR, mRad, mRad, p); p.setShader(null);
+            float bandTop = ch * 0.38f, bandBot = ch * 0.62f; p.setColor(Color.parseColor("#CC0A1826")); mcc.drawRect(6f, bandTop - 2f, cw - 6f, bandBot + 2f, p);
+            p.setShader(new LinearGradient(0, bandTop, 0, bandBot, new int[]{Color.parseColor("#4400B8FF"), mGlowCol, Color.WHITE, mGlowCol, Color.parseColor("#4400B8FF")}, new float[]{0f, 0.25f, 0.5f, 0.75f, 1f}, Shader.TileMode.CLAMP)); mcc.drawRect(8f, bandTop, cw - 8f, bandBot, p); p.setShader(null);
+            for (float rx : new float[]{cw * 0.12f, cw * 0.88f}) { p.setColor(mRivetDark); mcc.drawCircle(rx + 1f, ch * 0.5f + 1f, ch * 0.14f, p); p.setColor(mRivetLight); mcc.drawCircle(rx, ch * 0.5f, ch * 0.11f, p); p.setColor(mGlowCol); mcc.drawCircle(rx, ch * 0.5f, ch * 0.055f, p); }
+            p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(Math.max(3.5f, bw * 0.036f)); p.setColor(mOutline); mcc.drawRoundRect(mCapR, mRad, mRad, p); p.setStyle(Paint.Style.FILL);
 
-            // 3. Pre-rendered electric contact flash corona bitmap (zero per-frame gradient allocation!)
             int flashSize = Math.max(64, (int) (bw * 0.65f));
-            elecFlashBmp = Bitmap.createBitmap(flashSize, flashSize, Bitmap.Config.ARGB_8888);
-            Canvas efc = new Canvas(elecFlashBmp); float efcx = flashSize / 2f;
-            p.setShader(new RadialGradient(efcx, efcx, efcx, new int[]{Color.WHITE, Color.parseColor("#CC7CF8FF"), Color.parseColor("#5500A8FF"), Color.parseColor("#001A4DFF")}, new float[]{0f, 0.24f, 0.58f, 1f}, Shader.TileMode.CLAMP));
-            efc.drawCircle(efcx, efcx, efcx, p); p.setShader(null);
+            Bitmap eFlash = Bitmap.createBitmap(flashSize, flashSize, Bitmap.Config.ARGB_8888); Canvas efc = new Canvas(eFlash); float efcx = flashSize / 2f;
+            p.setShader(new RadialGradient(efcx, efcx, efcx, new int[]{Color.WHITE, Color.parseColor("#CC7CF8FF"), Color.parseColor("#5500A8FF"), Color.parseColor("#001A4DFF")}, new float[]{0f, 0.24f, 0.58f, 1f}, Shader.TileMode.CLAMP)); efc.drawCircle(efcx, efcx, efcx, p);
+            return new Bitmap[]{ cBody, cCap, mBody, mCap, eFlash };
         }
 
         private Bitmap createShieldHaloBitmap(int size, int[] colors, float[] stops) {
             Bitmap bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
             Canvas c = new Canvas(bmp); float cx = size / 2f; Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-            p.setShader(new RadialGradient(cx, cx, cx, colors, stops, Shader.TileMode.CLAMP));
-            c.drawCircle(cx, cx, cx, p);
+            p.setShader(new RadialGradient(cx, cx, cx, colors, stops, Shader.TileMode.CLAMP)); c.drawCircle(cx, cx, cx, p);
             return bmp;
         }
 
-        private void buildShieldBitmaps() {
-            recycleBitmap(shieldGoldHaloBmp); shieldGoldHaloBmp = null; recycleBitmap(shieldCosmicHaloBmp); shieldCosmicHaloBmp = null; recycleBitmap(shieldCrimsonHaloBmp); shieldCrimsonHaloBmp = null;
-            int size = Math.max(160, (int) (birdRadius * 7.2f));
-            shieldGoldHaloBmp = createShieldHaloBitmap(size,
-                    new int[]{Color.parseColor("#70FFFDF0"), Color.parseColor("#55FFE63B"), Color.parseColor("#38FFAE00"), Color.parseColor("#18FF8800"), Color.parseColor("#00FFCC00")},
-                    new float[]{0.0f, 0.34f, 0.56f, 0.78f, 1.0f});
-            shieldCosmicHaloBmp = createShieldHaloBitmap(size,
-                    new int[]{Color.parseColor("#55E0FFFF"), Color.parseColor("#4800F0FF"), Color.parseColor("#3200FF9D"), Color.parseColor("#1A5B2EFF"), Color.parseColor("#0000E5FF")},
-                    new float[]{0.0f, 0.34f, 0.58f, 0.78f, 1.0f});
-            shieldCrimsonHaloBmp = createShieldHaloBitmap(size,
-                    new int[]{Color.parseColor("#66FFF3B0"), Color.parseColor("#4DFFAA00"), Color.parseColor("#3AFF3D2E"), Color.parseColor("#18B80028"), Color.parseColor("#00FF5500")},
-                    new float[]{0.0f, 0.32f, 0.58f, 0.78f, 1.0f});
+        private Bitmap[] createShieldBitmaps(float bRadius) {
+            int size = Math.max(160, (int) (bRadius * 7.2f));
+            return new Bitmap[]{
+                    createShieldHaloBitmap(size, new int[]{Color.parseColor("#70FFFDF0"), Color.parseColor("#55FFE63B"), Color.parseColor("#38FFAE00"), Color.parseColor("#18FF8800"), Color.parseColor("#00FFCC00")}, new float[]{0.0f, 0.34f, 0.56f, 0.78f, 1.0f}),
+                    createShieldHaloBitmap(size, new int[]{Color.parseColor("#55E0FFFF"), Color.parseColor("#4800F0FF"), Color.parseColor("#3200FF9D"), Color.parseColor("#1A5B2EFF"), Color.parseColor("#0000E5FF")}, new float[]{0.0f, 0.34f, 0.58f, 0.78f, 1.0f}),
+                    createShieldHaloBitmap(size, new int[]{Color.parseColor("#66FFF3B0"), Color.parseColor("#4DFFAA00"), Color.parseColor("#3AFF3D2E"), Color.parseColor("#18B80028"), Color.parseColor("#00FF5500")}, new float[]{0.0f, 0.32f, 0.58f, 0.78f, 1.0f})
+            };
         }
 
-        private void buildGoldenWormBitmaps() {
-            recycleBitmap(goldSegBmp); goldSegBmp = null; recycleBitmap(goldHeadBmp); goldHeadBmp = null; recycleBitmap(goldAuraBmp); goldAuraBmp = null;
-            int segSize = Math.max(72, (int) (wormRadius * 2.6f));
-            goldSegBmp = createChromeGoldSphere(segSize, false);
-            goldHeadBmp = createChromeGoldSphere(Math.max(88, (int) (wormRadius * 3.0f)), true);
-
-            int auraSize = Math.max(96, (int) (wormRadius * 5.4f));
-            goldAuraBmp = Bitmap.createBitmap(auraSize, auraSize, Bitmap.Config.ARGB_8888);
-            Canvas ac = new Canvas(goldAuraBmp); float acx = auraSize / 2f; Paint ap = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private Bitmap[] createGoldenWormBitmaps(float wRadius) {
+            Bitmap seg = createChromeGoldSphere(Math.max(72, (int) (wRadius * 2.6f)), false);
+            Bitmap head = createChromeGoldSphere(Math.max(88, (int) (wRadius * 3.0f)), true);
+            int auraSize = Math.max(96, (int) (wRadius * 5.4f));
+            Bitmap aura = Bitmap.createBitmap(auraSize, auraSize, Bitmap.Config.ARGB_8888); Canvas ac = new Canvas(aura); float acx = auraSize / 2f; Paint ap = new Paint(Paint.ANTI_ALIAS_FLAG);
             ap.setShader(new RadialGradient(acx, acx, acx, new int[]{Color.parseColor("#99FFF9B0"), Color.parseColor("#66FFE600"), Color.parseColor("#28CC8800"), Color.parseColor("#00FFCC00")}, new float[]{0f, 0.34f, 0.68f, 1f}, Shader.TileMode.CLAMP));
             ac.drawCircle(acx, acx, acx, ap);
+            return new Bitmap[]{ seg, head, aura };
         }
 
         private Bitmap createChromeGoldSphere(int size, boolean isHead) {
@@ -899,38 +869,26 @@ public class FlappyBirdActivity extends AppCompatActivity {
             float cx = size / 2f, cy = size / 2f, r = size * 0.43f, rx = isHead ? r * 1.08f : r * 0.98f, ry = isHead ? r * 0.98f : r * 0.96f;
             RectF oval = new RectF(cx - rx, cy - ry, cx + rx, cy + ry);
 
-            p.setShader(new RadialGradient(cx, cy, r * 1.15f, new int[]{Color.parseColor("#88FFE600"), Color.parseColor("#00FFE600")}, new float[]{0.6f, 1f}, Shader.TileMode.CLAMP));
-            c.drawCircle(cx, cy, r * 1.15f, p); p.setShader(null);
-
+            p.setShader(new RadialGradient(cx, cy, r * 1.15f, new int[]{Color.parseColor("#88FFE600"), Color.parseColor("#00FFE600")}, new float[]{0.6f, 1f}, Shader.TileMode.CLAMP)); c.drawCircle(cx, cy, r * 1.15f, p); p.setShader(null);
             c.save(); Path clip = new Path(); clip.addOval(oval, Path.Direction.CW); c.clipPath(clip);
             p.setShader(new LinearGradient(cx - rx * 0.25f, cy - ry, cx + rx * 0.20f, cy + ry,
                     new int[]{Color.parseColor("#FFFDF2"), Color.parseColor("#FFF700"), Color.parseColor("#FFE400"), Color.parseColor("#9C6400"), Color.parseColor("#1D1000"), Color.parseColor("#120900"), Color.parseColor("#694100"), Color.parseColor("#D69900"), Color.parseColor("#FFE838"), Color.parseColor("#543000")},
-                    new float[]{0.00f, 0.14f, 0.36f, 0.47f, 0.56f, 0.64f, 0.74f, 0.84f, 0.93f, 1.00f}, Shader.TileMode.CLAMP));
-            c.drawOval(oval, p);
-
-            p.setShader(new RadialGradient(cx - rx * 0.18f, cy - ry * 0.42f, rx * 0.85f, new int[]{Color.parseColor("#EEFFFFB8"), Color.parseColor("#AAFFF200"), Color.parseColor("#00FFD000")}, new float[]{0.0f, 0.42f, 1.0f}, Shader.TileMode.CLAMP));
-            c.drawOval(cx - rx * 0.85f, cy - ry * 0.92f, cx + rx * 0.72f, cy + ry * 0.12f, p);
-
+                    new float[]{0.00f, 0.14f, 0.36f, 0.47f, 0.56f, 0.64f, 0.74f, 0.84f, 0.93f, 1.00f}, Shader.TileMode.CLAMP)); c.drawOval(oval, p);
+            p.setShader(new RadialGradient(cx - rx * 0.18f, cy - ry * 0.42f, rx * 0.85f, new int[]{Color.parseColor("#EEFFFFB8"), Color.parseColor("#AAFFF200"), Color.parseColor("#00FFD000")}, new float[]{0.0f, 0.42f, 1.0f}, Shader.TileMode.CLAMP)); c.drawOval(cx - rx * 0.85f, cy - ry * 0.92f, cx + rx * 0.72f, cy + ry * 0.12f, p);
             Path darkBand = new Path(); darkBand.moveTo(cx - rx * 1.05f, cy + ry * 0.08f); darkBand.quadTo(cx - rx * 0.10f, cy + ry * 0.46f, cx + rx * 1.05f, cy - ry * 0.06f); darkBand.quadTo(cx + rx * 0.15f, cy + ry * 0.78f, cx - rx * 1.05f, cy + ry * 0.32f); darkBand.close();
             p.setShader(new LinearGradient(cx, cy, cx, cy + ry * 0.65f, Color.parseColor("#D8180C00"), Color.parseColor("#224A2A00"), Shader.TileMode.CLAMP)); c.drawPath(darkBand, p);
-
             p.setShader(null); p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(Math.max(2f, r * 0.13f)); p.setColor(Color.parseColor("#E6FFDF2B")); c.drawArc(cx - rx * 0.88f, cy - ry * 0.88f, cx + rx * 0.88f, cy + ry * 0.88f, 22f, 132f, false, p);
             p.setStrokeWidth(Math.max(2f, r * 0.14f)); p.setStrokeCap(Paint.Cap.ROUND); p.setColor(Color.parseColor("#F5FFFDE0")); c.drawArc(cx - rx * 0.84f, cy - ry * 0.84f, cx + rx * 0.84f, cy + ry * 0.84f, 206f, 108f, false, p);
-
-            p.setStyle(Paint.Style.FILL); p.setShader(new RadialGradient(cx - rx * 0.28f, cy - ry * 0.48f, r * 0.30f, new int[]{Color.WHITE, Color.parseColor("#99FFF9B0"), Color.TRANSPARENT}, new float[]{0f, 0.45f, 1f}, Shader.TileMode.CLAMP));
-            c.drawCircle(cx - rx * 0.28f, cy - ry * 0.48f, r * 0.30f, p); p.setShader(null); c.restore();
-
+            p.setStyle(Paint.Style.FILL); p.setShader(new RadialGradient(cx - rx * 0.28f, cy - ry * 0.48f, r * 0.30f, new int[]{Color.WHITE, Color.parseColor("#99FFF9B0"), Color.TRANSPARENT}, new float[]{0f, 0.45f, 1f}, Shader.TileMode.CLAMP)); c.drawCircle(cx - rx * 0.28f, cy - ry * 0.48f, r * 0.30f, p); p.setShader(null); c.restore();
             p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(Math.max(1.5f, r * 0.065f)); p.setColor(Color.parseColor("#CC3A2100")); c.drawOval(oval, p);
 
             if (isHead) {
                 Path horn = new Path(); horn.moveTo(cx + rx * 0.08f, cy - ry * 0.82f); horn.quadTo(cx - rx * 0.04f, cy - ry * 1.24f, cx - rx * 0.34f, cy - ry * 1.28f); horn.quadTo(cx + rx * 0.08f, cy - ry * 1.12f, cx + rx * 0.28f, cy - ry * 0.76f); horn.close();
                 p.setStyle(Paint.Style.FILL); p.setShader(new LinearGradient(cx - rx * 0.34f, cy - ry * 1.28f, cx + rx * 0.28f, cy - ry * 0.76f, Color.parseColor("#FFFCE0"), Color.parseColor("#7A4900"), Shader.TileMode.CLAMP)); c.drawPath(horn, p); p.setShader(null);
                 p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(Math.max(1.2f, r * 0.05f)); p.setColor(Color.parseColor("#442400")); c.drawPath(horn, p);
-
                 float ex = cx + rx * 0.34f, ey = cy - ry * 0.16f, er = r * 0.23f;
                 p.setStyle(Paint.Style.FILL); p.setColor(Color.parseColor("#FFE438")); c.drawCircle(ex, ey, er * 1.24f, p);
-                p.setShader(new RadialGradient(ex - er * 0.25f, ey - er * 0.25f, er * 1.1f, new int[]{Color.parseColor("#543100"), Color.parseColor("#140900"), Color.BLACK}, new float[]{0f, 0.55f, 1f}, Shader.TileMode.CLAMP));
-                c.drawCircle(ex, ey, er, p); p.setShader(null);
+                p.setShader(new RadialGradient(ex - er * 0.25f, ey - er * 0.25f, er * 1.1f, new int[]{Color.parseColor("#543100"), Color.parseColor("#140900"), Color.BLACK}, new float[]{0f, 0.55f, 1f}, Shader.TileMode.CLAMP)); c.drawCircle(ex, ey, er, p); p.setShader(null);
                 p.setColor(Color.parseColor("#FFFCE8")); c.drawCircle(ex - er * 0.30f, ey - er * 0.32f, er * 0.34f, p);
                 p.setColor(Color.parseColor("#BBFFD43B")); c.drawCircle(ex + er * 0.26f, ey + er * 0.28f, er * 0.18f, p);
             }
@@ -972,12 +930,11 @@ public class FlappyBirdActivity extends AppCompatActivity {
             }
         }
 
-        private void buildCelestialBitmap() {
-            recycleBitmap(celestialBmp); celestialBmp = null; if (screenW <= 0 || screenH <= 0) return;
-            float baseRadius = Math.min(screenW, screenH) * (themeState == 0 ? 0.075f : (themeState == 1 ? 0.072f : 0.062f));
+        private Bitmap createCelestialBitmap(float sW, float sH) {
+            float baseRadius = Math.min(sW, sH) * (themeState == 0 ? 0.075f : (themeState == 1 ? 0.072f : 0.062f));
             int size = Math.max(64, (int) (baseRadius * 6.0f));
-            celestialBmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-            Canvas c = new Canvas(celestialBmp); float cx = size / 2f, cy = size / 2f; Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+            Bitmap bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+            Canvas c = new Canvas(bmp); float cx = size / 2f, cy = size / 2f; Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
 
             if (themeState == 0) {
                 p.setShader(new RadialGradient(cx, cy, baseRadius * 2.8f, new int[]{Color.parseColor("#AAFFFBE2"), Color.parseColor("#44FFEA9E"), Color.parseColor("#00FFF6CC")}, new float[]{0f, 0.45f, 1f}, Shader.TileMode.CLAMP)); c.drawCircle(cx, cy, baseRadius * 2.8f, p);
@@ -985,22 +942,18 @@ public class FlappyBirdActivity extends AppCompatActivity {
             } else if (themeState == 1) {
                 p.setShader(new RadialGradient(cx, cy, baseRadius * 2.9f, new int[]{Color.parseColor("#70D2ECFF"), Color.parseColor("#2A7EB4DE"), Color.parseColor("#001B3952")}, new float[]{0f, 0.46f, 1f}, Shader.TileMode.CLAMP)); c.drawCircle(cx, cy, baseRadius * 2.9f, p);
                 c.save(); Path moonClip = new Path(); moonClip.addCircle(cx, cy, baseRadius, Path.Direction.CW); c.clipPath(moonClip);
-                p.setShader(new RadialGradient(cx - baseRadius * 0.25f, cy - baseRadius * 0.25f, baseRadius * 1.35f, new int[]{Color.parseColor("#F8FCFF"), Color.parseColor("#DCEBF7"), Color.parseColor("#AEC8DE")}, new float[]{0f, 0.68f, 1f}, Shader.TileMode.CLAMP)); c.drawCircle(cx, cy, baseRadius, p);
-                p.setShader(null);
+                p.setShader(new RadialGradient(cx - baseRadius * 0.25f, cy - baseRadius * 0.25f, baseRadius * 1.35f, new int[]{Color.parseColor("#F8FCFF"), Color.parseColor("#DCEBF7"), Color.parseColor("#AEC8DE")}, new float[]{0f, 0.68f, 1f}, Shader.TileMode.CLAMP)); c.drawCircle(cx, cy, baseRadius, p); p.setShader(null);
                 float[][] craters = {{-0.30f,-0.22f,0.26f,38},{0.12f,-0.32f,0.20f,30},{0.28f,0.10f,0.30f,36},{-0.18f,0.26f,0.22f,32},{0.02f,0.04f,0.16f,26},{-0.46f,0.08f,0.14f,28},{0.42f,-0.22f,0.13f,24}};
-                for (float[] cr : craters) {
-                    float crX = cx + cr[0] * baseRadius, crY = cy + cr[1] * baseRadius, crR = cr[2] * baseRadius;
-                    p.setShader(new RadialGradient(crX, crY, Math.max(1f, crR), new int[]{Color.argb((int) cr[3], 92, 120, 148), Color.argb(0, 92, 120, 148)}, new float[]{0.2f, 1f}, Shader.TileMode.CLAMP)); c.drawCircle(crX, crY, crR, p);
-                }
+                for (float[] cr : craters) { float crX = cx + cr[0] * baseRadius, crY = cy + cr[1] * baseRadius, crR = cr[2] * baseRadius; p.setShader(new RadialGradient(crX, crY, Math.max(1f, crR), new int[]{Color.argb((int) cr[3], 92, 120, 148), Color.argb(0, 92, 120, 148)}, new float[]{0.2f, 1f}, Shader.TileMode.CLAMP)); c.drawCircle(crX, crY, crR, p); }
                 p.setShader(null); p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(2.2f); p.setColor(Color.parseColor("#88FFFFFF")); c.drawCircle(cx, cy, baseRadius - 1f, p); c.restore();
             } else {
                 p.setShader(new RadialGradient(cx, cy, baseRadius * 2.5f, new int[]{Color.parseColor("#3A7AB8E8"), Color.parseColor("#14316496"), Color.parseColor("#00000000")}, new float[]{0f, 0.45f, 1f}, Shader.TileMode.CLAMP)); c.drawCircle(cx, cy, baseRadius * 2.5f, p);
                 Bitmap crescentLayer = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888); Canvas cc = new Canvas(crescentLayer); Paint cp = new Paint(Paint.ANTI_ALIAS_FLAG);
                 cp.setShader(new RadialGradient(cx - baseRadius * 0.3f, cy - baseRadius * 0.2f, baseRadius * 1.3f, new int[]{Color.parseColor("#F5FBFF"), Color.parseColor("#CBE4FA"), Color.parseColor("#8BB8DE")}, new float[]{0f, 0.65f, 1f}, Shader.TileMode.CLAMP)); cc.drawCircle(cx, cy, baseRadius, cp);
-                Paint clearPaint = new Paint(Paint.ANTI_ALIAS_FLAG); clearPaint.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.CLEAR));
-                cc.drawCircle(cx + baseRadius * 0.42f, cy - baseRadius * 0.18f, baseRadius * 0.90f, clearPaint);
+                Paint clearPaint = new Paint(Paint.ANTI_ALIAS_FLAG); clearPaint.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.CLEAR)); cc.drawCircle(cx + baseRadius * 0.42f, cy - baseRadius * 0.18f, baseRadius * 0.90f, clearPaint);
                 c.drawBitmap(crescentLayer, 0, 0, null); crescentLayer.recycle();
             }
+            return bmp;
         }
 
         private void drawSoftPuffWrapped(Canvas c, float bmpW, float x, float y, float rx, float ry, int coreColor, int edgeColor) {
@@ -1027,11 +980,10 @@ public class FlappyBirdActivity extends AppCompatActivity {
             for (int i = 0; i < puffCount; i++) if (py[i] <= cy + ch * 0.05f) drawSoftPuffWrapped(c, bmpW, px[i] + cw * 0.035f, py[i] - ch * 0.13f, prx[i] * 0.86f, pry[i] * 0.78f, highlightCol, hiEdge);
         }
 
-        private void buildCloudLayers(int bmpW, float scaleY) {
-            recycleBitmap(farCloudBmp); farCloudBmp = null; recycleBitmap(nearCloudBmp); nearCloudBmp = null;
-            int cloudBandH = Math.max(64, (int) (screenH * 0.62f * scaleY));
-            farCloudBmp = Bitmap.createBitmap(bmpW, cloudBandH, Bitmap.Config.ARGB_8888); nearCloudBmp = Bitmap.createBitmap(bmpW, cloudBandH, Bitmap.Config.ARGB_8888);
-            Canvas fc = new Canvas(farCloudBmp), nc = new Canvas(nearCloudBmp);
+        private Bitmap[] createCloudLayers(int bmpW, float sH, float scaleY) {
+            int cloudBandH = Math.max(64, (int) (sH * 0.62f * scaleY));
+            Bitmap fBmp = Bitmap.createBitmap(bmpW, cloudBandH, Bitmap.Config.ARGB_8888), nBmp = Bitmap.createBitmap(bmpW, cloudBandH, Bitmap.Config.ARGB_8888);
+            Canvas fc = new Canvas(fBmp), nc = new Canvas(nBmp);
 
             int fShadow, fMid, fHi, nShadow, nMid, nHi;
             if (themeState == 0) { fShadow = Color.argb(125,160,182,206); fMid = Color.argb(175,224,234,244); fHi = Color.argb(205,250,252,255); nShadow = Color.argb(175,128,148,174); nMid = Color.argb(225,222,230,238); nHi = Color.argb(242,255,253,246); }
@@ -1043,6 +995,7 @@ public class FlappyBirdActivity extends AppCompatActivity {
             Random nRnd = new Random(208L);
             float[][] cloudSpecs = {{0.12f,0.24f,0.34f,0.20f},{0.44f,0.16f,0.42f,0.23f},{0.76f,0.28f,0.48f,0.25f},{0.28f,0.44f,0.44f,0.20f},{0.64f,0.48f,0.38f,0.18f},{0.93f,0.15f,0.32f,0.17f}};
             for (float[] sp : cloudSpecs) drawVolumetricCloud(nc, bmpW, sp[0] * bmpW, sp[1] * cloudBandH, sp[2] * bmpW, sp[3] * cloudBandH, nShadow, nMid, nHi, nRnd);
+            return new Bitmap[]{ fBmp, nBmp };
         }
 
         private float sampleRidge(float t, float baseY, float amp, float[] freqs, float[] weights, float[] phases) {
@@ -1096,11 +1049,10 @@ public class FlappyBirdActivity extends AppCompatActivity {
             if (cx + w > bmpW) drawPineTree(c, cx - bmpW, baseY, h, w, seed, trunkCol, deepCol, darkCol, midCol, lightCol, p, path);
         }
 
-        private void buildNatureLayers(int bmpW, float scaleY) {
-            recycleBitmap(farMountainBmp); farMountainBmp = null; recycleBitmap(midMountainBmp); midMountainBmp = null; recycleBitmap(foreForestBmp); foreForestBmp = null;
+        private Bitmap[] createNatureLayers(int bmpW, float sH, float scaleY) {
             int steps = Math.max(120, bmpW / 6); Paint p = new Paint(Paint.ANTI_ALIAS_FLAG); Path path = new Path();
 
-            int farH = Math.max(64, (int) (screenH * 0.44f * scaleY)); farMountainBmp = Bitmap.createBitmap(bmpW, farH, Bitmap.Config.ARGB_8888); Canvas fc = new Canvas(farMountainBmp);
+            int farH = Math.max(64, (int) (sH * 0.44f * scaleY)); Bitmap fMtn = Bitmap.createBitmap(bmpW, farH, Bitmap.Config.ARGB_8888); Canvas fc = new Canvas(fMtn);
             float[] fFreqA = {1f,2f,3f,5f}, fWgtA = {0.42f,0.30f,0.18f,0.10f}, fPhA = {0.4f,1.9f,3.1f,0.8f};
             float[] fFreqB = {1f,2f,4f,6f}, fWgtB = {0.38f,0.32f,0.20f,0.10f}, fPhB = {2.2f,0.5f,4.1f,1.7f};
             int farTopA, farBotA, farTopB, farBotB, farMistCol;
@@ -1117,7 +1069,7 @@ public class FlappyBirdActivity extends AppCompatActivity {
             path.lineTo(bmpW, farH); path.close(); p.setShader(new LinearGradient(0, farH * 0.26f, 0, farH, farTopB, farBotB, Shader.TileMode.CLAMP)); fc.drawPath(path, p);
             p.setShader(new LinearGradient(0, farH * 0.45f, 0, farH, Color.TRANSPARENT, farMistCol, Shader.TileMode.CLAMP)); fc.drawRect(0, farH * 0.45f, bmpW, farH, p); p.setShader(null);
 
-            int midH = Math.max(64, (int) (screenH * 0.44f * scaleY)); midMountainBmp = Bitmap.createBitmap(bmpW, midH, Bitmap.Config.ARGB_8888); Canvas mc = new Canvas(midMountainBmp);
+            int midH = Math.max(64, (int) (sH * 0.44f * scaleY)); Bitmap mMtn = Bitmap.createBitmap(bmpW, midH, Bitmap.Config.ARGB_8888); Canvas mc = new Canvas(mMtn);
             float[] mFreq = {1f,2f,3f,5f,8f}, mWgt = {0.36f,0.28f,0.20f,0.11f,0.05f}, mPh = {1.1f,2.8f,0.3f,4.4f,1.5f}, ridgeYs = new float[steps + 1];
             path.reset(); path.moveTo(0, midH);
             for (int i = 0; i <= steps; i++) { float t = i / (float) steps; ridgeYs[i] = sampleRidge(t, midH * 0.32f, midH * 0.22f, mFreq, mWgt, mPh); path.lineTo(t * bmpW, ridgeYs[i]); }
@@ -1153,7 +1105,7 @@ public class FlappyBirdActivity extends AppCompatActivity {
             p.setShader(new LinearGradient(0, midH * 0.66f, 0, midH, Color.TRANSPARENT, midMist, Shader.TileMode.CLAMP)); mc.drawRect(0, midH * 0.66f, bmpW, midH, p);
             p.setShader(null); mc.restore();
 
-            int foreH = Math.max(64, (int) (screenH * 0.44f * scaleY)); foreForestBmp = Bitmap.createBitmap(bmpW, foreH, Bitmap.Config.ARGB_8888); Canvas frc = new Canvas(foreForestBmp);
+            int foreH = Math.max(64, (int) (sH * 0.44f * scaleY)); Bitmap fFor = Bitmap.createBitmap(bmpW, foreH, Bitmap.Config.ARGB_8888); Canvas frc = new Canvas(fFor);
             int hill1Top, hill1Bot, t1Trunk, t1Deep, t1Dark, t1Mid, t1Light, forestMist, hill2Top, hill2Bot, t2Trunk, t2Deep, t2Dark, t2Mid, t2Light;
             if (themeState == 0) {
                 hill1Top = Color.parseColor("#547634"); hill1Bot = Color.parseColor("#2B471E"); t1Trunk = Color.parseColor("#3B2D1F"); t1Deep = Color.parseColor("#1F3816"); t1Dark = Color.parseColor("#2E5220"); t1Mid = Color.parseColor("#4F762F"); t1Light = Color.parseColor("#8FB449"); forestMist = Color.parseColor("#52C6DFC8");
@@ -1207,6 +1159,7 @@ public class FlappyBirdActivity extends AppCompatActivity {
             }
             Arrays.sort(t2Trees, (a, b) -> Float.compare(a[1], b[1]));
             for (float[] tr : t2Trees) drawWrappedPineTree(frc, bmpW, tr[0], tr[1], tr[2], tr[3], tr[4], t2Trunk, t2Deep, t2Dark, t2Mid, t2Light, p, path);
+            return new Bitmap[]{ fMtn, mMtn, fFor };
         }
 
         private void drawBuildingWrapped(Canvas c, float bmpW, float x, float top, float bw, float bh, int bodyTopCol, int bodyBotCol, int sideCol, int winCol1, int winCol2, int roofStyle, boolean addWindows, boolean addBeacon, Random rnd) {
@@ -1237,11 +1190,10 @@ public class FlappyBirdActivity extends AppCompatActivity {
             }
         }
 
-        private void buildCityLayers(int bmpW, float scaleY) {
-            recycleBitmap(cityBackBmp); cityBackBmp = null; recycleBitmap(cityMidBmp); cityMidBmp = null; recycleBitmap(cityFrontBmp); cityFrontBmp = null;
-            int backH = Math.max(64, (int) (screenH * 0.52f * scaleY)), midH = Math.max(64, (int) (screenH * 0.58f * scaleY)), frontH = Math.max(64, (int) (screenH * 0.40f * scaleY));
-            cityBackBmp = Bitmap.createBitmap(bmpW, backH, Bitmap.Config.ARGB_8888); cityMidBmp = Bitmap.createBitmap(bmpW, midH, Bitmap.Config.ARGB_8888); cityFrontBmp = Bitmap.createBitmap(bmpW, frontH, Bitmap.Config.ARGB_8888);
-            Canvas bc = new Canvas(cityBackBmp), mc = new Canvas(cityMidBmp), fc = new Canvas(cityFrontBmp);
+        private Bitmap[] createCityLayers(int bmpW, float sH, float scaleY) {
+            int backH = Math.max(64, (int) (sH * 0.52f * scaleY)), midH = Math.max(64, (int) (sH * 0.58f * scaleY)), frontH = Math.max(64, (int) (sH * 0.40f * scaleY));
+            Bitmap cBack = Bitmap.createBitmap(bmpW, backH, Bitmap.Config.ARGB_8888), cMid = Bitmap.createBitmap(bmpW, midH, Bitmap.Config.ARGB_8888), cFront = Bitmap.createBitmap(bmpW, frontH, Bitmap.Config.ARGB_8888);
+            Canvas bc = new Canvas(cBack), mc = new Canvas(cMid), fc = new Canvas(cFront);
 
             int bTop, bBot, bSide, mTop, mBot, mSide, fTop, fBot, fSide, w1, w2, hazeCol;
             if (themeState == 0) { bTop = Color.parseColor("#8FAEC4"); bBot = Color.parseColor("#C2D8E6"); bSide = Color.parseColor("#7D9CB3"); mTop = Color.parseColor("#6E8DA3"); mBot = Color.parseColor("#97B3C4"); mSide = Color.parseColor("#57758A"); fTop = Color.parseColor("#476275"); fBot = Color.parseColor("#324756"); fSide = Color.parseColor("#2A3D4A"); w1 = Color.parseColor("#DDF2FF"); w2 = Color.parseColor("#FFF8DC"); hazeCol = Color.parseColor("#66D8EAF5"); }
@@ -1257,21 +1209,78 @@ public class FlappyBirdActivity extends AppCompatActivity {
 
             Random rFront = new Random(803L); cursor = 0f;
             while (cursor < bmpW) { float bw = bmpW * (0.09f + rFront.nextFloat() * 0.09f), bh = frontH * (0.34f + rFront.nextFloat() * 0.46f); drawBuildingWrapped(fc, bmpW, cursor, frontH - bh, bw, bh, fTop, fBot, fSide, w1, w2, rFront.nextInt(3), true, false, rFront); cursor += bw * (1.02f + rFront.nextFloat() * 0.30f); }
+            return new Bitmap[]{ cBack, cMid, cFront };
         }
 
-        private void ensureSceneLayersForBirdType() {
+        private void buildCityLayersAsync() {
+            final int gen = bgBuildGen; final float sW = screenW, sH = screenH, tW = sW * 1.25f;
+            final int bmpW = Math.max(256, Math.min((int) tW, 1440)); final float scaleY = bmpW / tW;
+            cityBuildPending = true;
+            Thread t = new Thread(() -> {
+                if (detached || gen != bgBuildGen) return;
+                final Bitmap[] city = createCityLayers(bmpW, sH, scaleY);
+                post(() -> {
+                    cityBuildPending = false;
+                    if (detached || gen != bgBuildGen) { recycleBitmapArray(city); return; }
+                    recycleBitmap(cityBackBmp); recycleBitmap(cityMidBmp); recycleBitmap(cityFrontBmp);
+                    cityBackBmp = city[0]; cityMidBmp = city[1]; cityFrontBmp = city[2];
+                    invalidate();
+                });
+            });
+            t.setDaemon(true); t.start();
+        }
+
+        private void generateBackgroundLayersAsync() {
             if (screenW <= 0 || screenH <= 0) return;
-            layerTileW = screenW * 1.25f; int bmpW = Math.max(256, Math.min((int) layerTileW, 1440)); float scaleY = bmpW / layerTileW;
-            if (celestialBmp == null || celestialBmp.isRecycled()) buildCelestialBitmap();
-            if (farCloudBmp == null || farCloudBmp.isRecycled() || nearCloudBmp == null || nearCloudBmp.isRecycled()) buildCloudLayers(bmpW, scaleY);
-            if (goldSegBmp == null || goldSegBmp.isRecycled() || goldHeadBmp == null || goldHeadBmp.isRecycled() || goldAuraBmp == null || goldAuraBmp.isRecycled()) buildGoldenWormBitmaps();
-            if (shieldGoldHaloBmp == null || shieldGoldHaloBmp.isRecycled() || shieldCosmicHaloBmp == null || shieldCosmicHaloBmp.isRecycled() || shieldCrimsonHaloBmp == null || shieldCrimsonHaloBmp.isRecycled()) buildShieldBitmaps();
-            if (classicPipeBodyBmp == null || classicPipeBodyBmp.isRecycled() || clovPipeBodyBmp == null || clovPipeBodyBmp.isRecycled()) buildPipeBitmaps();
-            if (birdType == 0) { if (farMountainBmp == null || farMountainBmp.isRecycled() || midMountainBmp == null || midMountainBmp.isRecycled() || foreForestBmp == null || foreForestBmp.isRecycled()) buildNatureLayers(bmpW, scaleY); }
-            else { if (cityBackBmp == null || cityBackBmp.isRecycled() || cityMidBmp == null || cityMidBmp.isRecycled() || cityFrontBmp == null || cityFrontBmp.isRecycled()) buildCityLayers(bmpW, scaleY); }
-        }
+            final int gen = ++bgBuildGen;
+            final float sW = screenW, sH = screenH, rW = refW, rH = refH, bRad = birdRadius, wRad = wormRadius, pWid = pipeWidth;
+            final float tW = sW * 1.25f; layerTileW = tW;
+            final int bmpW = Math.max(256, Math.min((int) tW, 1440)); final float scaleY = bmpW / tW;
+            final int initBird = birdType;
+            final boolean needImmune = (immuneBmp == null), needSuppress = (suppressBmp == null);
+            cityBuildPending = (initBird == 1);
 
-        private void generateBackgroundLayers() { if (screenW <= 0 || screenH <= 0) return; recycleBackgroundBitmaps(); buildSkyAndAtmosphere(); ensureSceneLayersForBirdType(); }
+            Thread bgThread = new Thread(() -> {
+                if (detached || gen != bgBuildGen) return;
+                final Bitmap cel = createCelestialBitmap(sW, sH); if (detached || gen != bgBuildGen) { recycleBitmap(cel); return; }
+                final Bitmap[] clouds = createCloudLayers(bmpW, sH, scaleY); if (detached || gen != bgBuildGen) { recycleBitmap(cel); recycleBitmapArray(clouds); return; }
+                final Bitmap[] worm = createGoldenWormBitmaps(wRad); if (detached || gen != bgBuildGen) { recycleBitmap(cel); recycleBitmapArray(clouds); recycleBitmapArray(worm); return; }
+                final Bitmap[] shields = createShieldBitmaps(bRad); if (detached || gen != bgBuildGen) { recycleBitmap(cel); recycleBitmapArray(clouds); recycleBitmapArray(worm); recycleBitmapArray(shields); return; }
+                final Bitmap[] pipeBmps = createPipeBitmaps(pWid, rW, rH); if (detached || gen != bgBuildGen) { recycleBitmap(cel); recycleBitmapArray(clouds); recycleBitmapArray(worm); recycleBitmapArray(shields); recycleBitmapArray(pipeBmps); return; }
+                final Bitmap[] nature = (initBird == 0) ? createNatureLayers(bmpW, sH, scaleY) : null;
+                final Bitmap[] city = (initBird == 1) ? createCityLayers(bmpW, sH, scaleY) : null;
+                if (detached || gen != bgBuildGen) { recycleBitmap(cel); recycleBitmapArray(clouds); recycleBitmapArray(worm); recycleBitmapArray(shields); recycleBitmapArray(pipeBmps); recycleBitmapArray(nature); recycleBitmapArray(city); return; }
+
+                Bitmap imm = null, sup = null;
+                try {
+                    int targetH = (int) (sH * 0.035f);
+                    if (targetH > 0) {
+                        if (needImmune) { int resId = getResources().getIdentifier("immune", "drawable", getContext().getPackageName()); if (resId != 0) { Bitmap raw = BitmapFactory.decodeResource(getResources(), resId); imm = Bitmap.createScaledBitmap(raw, (int)(targetH * ((float)raw.getWidth()/raw.getHeight())), targetH, true); } }
+                        if (needSuppress) { int resId = getResources().getIdentifier("suppress", "drawable", getContext().getPackageName()); if (resId != 0) { Bitmap raw = BitmapFactory.decodeResource(getResources(), resId); sup = Bitmap.createScaledBitmap(raw, (int)(targetH * ((float)raw.getWidth()/raw.getHeight())), targetH, true); } }
+                    }
+                } catch (Exception ignored) {}
+                final Bitmap fImm = imm, fSup = sup;
+
+                post(() -> {
+                    if (detached || gen != bgBuildGen) {
+                        recycleBitmap(cel); recycleBitmapArray(clouds); recycleBitmapArray(worm); recycleBitmapArray(shields); recycleBitmapArray(pipeBmps); recycleBitmapArray(nature); recycleBitmapArray(city); recycleBitmap(fImm); recycleBitmap(fSup);
+                        return;
+                    }
+                    recycleBackgroundBitmaps();
+                    celestialBmp = cel; farCloudBmp = clouds[0]; nearCloudBmp = clouds[1];
+                    goldSegBmp = worm[0]; goldHeadBmp = worm[1]; goldAuraBmp = worm[2];
+                    shieldGoldHaloBmp = shields[0]; shieldCosmicHaloBmp = shields[1]; shieldCrimsonHaloBmp = shields[2];
+                    classicPipeBodyBmp = pipeBmps[0]; classicPipeCapBmp = pipeBmps[1]; clovPipeBodyBmp = pipeBmps[2]; clovPipeCapBmp = pipeBmps[3]; elecFlashBmp = pipeBmps[4];
+                    if (nature != null) { farMountainBmp = nature[0]; midMountainBmp = nature[1]; foreForestBmp = nature[2]; }
+                    if (city != null) { cityBackBmp = city[0]; cityMidBmp = city[1]; cityFrontBmp = city[2]; cityBuildPending = false; }
+                    if (fImm != null && immuneBmp == null) immuneBmp = fImm; else recycleBitmap(fImm);
+                    if (fSup != null && suppressBmp == null) suppressBmp = fSup; else recycleBitmap(fSup);
+                    if (birdType == 1 && (cityBackBmp == null || cityBackBmp.isRecycled()) && !cityBuildPending) buildCityLayersAsync();
+                    invalidate();
+                });
+            });
+            bgThread.setDaemon(true); bgThread.start();
+        }
 
         private void drawTiledBitmap(Canvas canvas, Bitmap bmp, float topY, float bottomY, float rawScroll, float speedMult) {
             if (bmp == null || bmp.isRecycled() || layerTileW <= 0f) return;
@@ -1289,13 +1298,9 @@ public class FlappyBirdActivity extends AppCompatActivity {
             basePipeSpeed = refW * 0.006f; maxPipeSpeed = refW * 0.015f; pipeWidth = refW * 0.18f;
             pipeGap = (screenH > screenW) ? (screenH * 0.30f) : (screenH * 0.48f);
 
-            generateBackgroundLayers();
+            buildSkyAndAtmosphere();
+            generateBackgroundLayersAsync();
             if (birdBitmaps == null && isReady) loadBirdSprite();
-
-            try {
-                if (immuneBmp == null) { int resId = getResources().getIdentifier("immune", "drawable", getContext().getPackageName()); if (resId != 0) { Bitmap raw = BitmapFactory.decodeResource(getResources(), resId); int targetH = (int) (screenH * 0.035f); if (targetH > 0) immuneBmp = Bitmap.createScaledBitmap(raw, (int)(targetH * ((float)raw.getWidth()/raw.getHeight())), targetH, true); } }
-                if (suppressBmp == null) { int resId = getResources().getIdentifier("suppress", "drawable", getContext().getPackageName()); if (resId != 0) { Bitmap raw = BitmapFactory.decodeResource(getResources(), resId); int targetH = (int) (screenH * 0.035f); if (targetH > 0) suppressBmp = Bitmap.createScaledBitmap(raw, (int)(targetH * ((float)raw.getWidth()/raw.getHeight())), targetH, true); } }
-            } catch (Exception ignored) {}
 
             if (oldWidth == 0 || oldHeight == 0) resetGame();
             else {
@@ -1402,7 +1407,6 @@ public class FlappyBirdActivity extends AppCompatActivity {
 
             for (int i = 0; i < pipes.size(); i++) {
                 Pipe p = pipes.get(i); p.x -= pipeSpeed;
-                // Update persistent realistic thunder-shock bursts for Clov Bird's Tesla pillars
                 if (birdType == 1) {
                     if (p.topBoltLife > 0) p.topBoltLife--;
                     else if (--p.topBoltCooldown <= 0) { p.topBoltMax = 7 + (int)(Math.random() * 7); p.topBoltLife = p.topBoltMax; p.topBoltSeed = System.nanoTime() ^ ((long) i * 31337L); p.topBoltCooldown = 12 + (int)(Math.random() * 28); }
@@ -1474,46 +1478,31 @@ public class FlappyBirdActivity extends AppCompatActivity {
             if (listener != null) listener.onGameOver(score, deathSnapshot, birdType);
         }
 
-        // Generates a realistic 16-segment midpoint-displacement fractal lightning bolt + forked sub-branches
         private void buildFractalThunderBolt(float x1, float y1, float x2, float y2, float maxDisp, long seed, float liveJitter) {
-            boltRnd.setSeed(seed);
-            boltXs[0] = x1; boltYs[0] = y1; boltXs[16] = x2; boltYs[16] = y2;
+            boltRnd.setSeed(seed); boltXs[0] = x1; boltYs[0] = y1; boltXs[16] = x2; boltYs[16] = y2;
             float disp = maxDisp;
             for (int step = 8; step >= 1; step >>= 1) {
                 for (int i = 0; i < 16; i += step * 2) {
                     int mid = i + step, end = i + step * 2;
-                    float mx = (boltXs[i] + boltXs[end]) * 0.5f, my = (boltYs[i] + boltYs[end]) * 0.5f;
-                    float dx = boltXs[end] - boltXs[i], dy = boltYs[end] - boltYs[i], len = (float) Math.hypot(dx, dy);
-                    if (len < 1f) len = 1f;
-                    float nx = -dy / len, ny = dx / len;
-                    float off = (boltRnd.nextFloat() - 0.5f) * 2f * disp;
+                    float mx = (boltXs[i] + boltXs[end]) * 0.5f, my = (boltYs[i] + boltYs[end]) * 0.5f, dx = boltXs[end] - boltXs[i], dy = boltYs[end] - boltYs[i], len = (float) Math.hypot(dx, dy);
+                    if (len < 1f) len = 1f; float nx = -dy / len, ny = dx / len, off = (boltRnd.nextFloat() - 0.5f) * 2f * disp;
                     boltXs[mid] = mx + nx * off; boltYs[mid] = my + ny * off * 0.35f;
                 }
                 disp *= 0.54f;
             }
 
-            electricPath.reset(); boltBranchPath.reset();
-            electricPath.moveTo(boltXs[0], boltYs[0]);
+            electricPath.reset(); boltBranchPath.reset(); electricPath.moveTo(boltXs[0], boltYs[0]);
             for (int i = 1; i <= 16; i++) {
                 float jx = (i < 16) ? (float) Math.sin(bgAmbientTick * 2.8f + i * 2.1f + (seed & 31)) * liveJitter : 0f;
                 float jy = (i < 16) ? (float) Math.cos(bgAmbientTick * 2.3f + i * 1.7f) * (liveJitter * 0.4f) : 0f;
-                boltXs[i] += jx; boltYs[i] += jy;
-                electricPath.lineTo(boltXs[i], boltYs[i]);
+                boltXs[i] += jx; boltYs[i] += jy; electricPath.lineTo(boltXs[i], boltYs[i]);
             }
 
-            // Forked secondary lightning tendrils branching off natural sharp bends
-            int[] forkIndices = { 4, 8, 12 };
-            for (int fIdx : forkIndices) {
+            for (int fIdx : new int[]{ 4, 8, 12 }) {
                 if (boltRnd.nextFloat() < 0.72f) {
-                    float bx = boltXs[fIdx], by = boltYs[fIdx];
-                    float dirX = (boltRnd.nextBoolean() ? 1f : -1f) * (pipeWidth * (0.20f + boltRnd.nextFloat() * 0.25f));
-                    float dirY = (y2 > y1 ? 1f : -1f) * (pipeWidth * (0.18f + boltRnd.nextFloat() * 0.26f));
+                    float bx = boltXs[fIdx], by = boltYs[fIdx], dirX = (boltRnd.nextBoolean() ? 1f : -1f) * (pipeWidth * (0.20f + boltRnd.nextFloat() * 0.25f)), dirY = (y2 > y1 ? 1f : -1f) * (pipeWidth * (0.18f + boltRnd.nextFloat() * 0.26f));
                     boltBranchPath.moveTo(bx, by);
-                    for (int seg = 1; seg <= 4; seg++) {
-                        bx += dirX * 0.28f + (boltRnd.nextFloat() - 0.5f) * (pipeWidth * 0.14f);
-                        by += dirY * 0.28f + (boltRnd.nextFloat() - 0.5f) * (pipeWidth * 0.10f);
-                        boltBranchPath.lineTo(bx, by);
-                    }
+                    for (int seg = 1; seg <= 4; seg++) { bx += dirX * 0.28f + (boltRnd.nextFloat() - 0.5f) * (pipeWidth * 0.14f); by += dirY * 0.28f + (boltRnd.nextFloat() - 0.5f) * (pipeWidth * 0.10f); boltBranchPath.lineTo(bx, by); }
                 }
             }
         }
@@ -1521,81 +1510,51 @@ public class FlappyBirdActivity extends AppCompatActivity {
         private void drawContactSpark(Canvas c, float x, float y, float radius, float intensity) {
             if (intensity <= 0.05f) return;
             if (elecFlashBmp != null && !elecFlashBmp.isRecycled()) {
-                float r = radius * (0.85f + 0.35f * intensity);
-                pipeTempRect.set(x - r, y - r, x + r, y + r);
-                bgBitmapPaint.setAlpha((int) (235 * intensity));
-                c.drawBitmap(elecFlashBmp, null, pipeTempRect, bgBitmapPaint);
-                bgBitmapPaint.setAlpha(255);
+                float r = radius * (0.85f + 0.35f * intensity); pipeTempRect.set(x - r, y - r, x + r, y + r);
+                bgBitmapPaint.setAlpha((int) (235 * intensity)); c.drawBitmap(elecFlashBmp, null, pipeTempRect, bgBitmapPaint); bgBitmapPaint.setAlpha(255);
             }
             drawColoredDiamondStar(c, x, y, radius * 0.52f * intensity, Color.WHITE, (int) (255 * intensity));
         }
 
         private void drawRealisticThunderShocks(Canvas c, RectF bodyRect, RectF capRect, boolean isTop, int boltLife, int boltMax, long boltSeed) {
-            float bodyH = bodyRect.height();
-            // 1. Subtle live high-voltage rim shimmer crackling across the Tesla collar face
-            float lipY = isTop ? capRect.bottom - capRect.height() * 0.50f : capRect.top + capRect.height() * 0.50f;
+            float bodyH = bodyRect.height(), lipY = isTop ? capRect.bottom - capRect.height() * 0.50f : capRect.top + capRect.height() * 0.50f;
             float capPulse = 0.45f + 0.55f * (float) Math.abs(Math.sin(bgAmbientTick * 0.34f + capRect.left * 0.03f));
             if (capPulse > 0.65f) {
-                float lx1 = capRect.left + capRect.width() * 0.12f, lx2 = capRect.right - capRect.width() * 0.12f;
-                buildFractalThunderBolt(lx1, lipY, lx2, lipY, capRect.height() * 0.22f, ((long) (bgAmbientTick * 0.45f)) * 97L + (isTop ? 11L : 53L), 1.8f);
+                buildFractalThunderBolt(capRect.left + capRect.width() * 0.12f, lipY, capRect.right - capRect.width() * 0.12f, lipY, capRect.height() * 0.22f, ((long) (bgAmbientTick * 0.45f)) * 97L + (isTop ? 11L : 53L), 1.8f);
                 int cA = (int) ((capPulse - 0.5f) * 260f);
                 elecGlowPaint.setColor(Color.parseColor("#00E5FF")); elecGlowPaint.setStrokeWidth(7f); elecGlowPaint.setAlpha(Math.min(130, cA)); c.drawPath(electricPath, elecGlowPaint);
                 elecWhitePaint.setColor(Color.WHITE); elecWhitePaint.setStrokeWidth(2.0f); elecWhitePaint.setAlpha(Math.min(220, cA + 50)); c.drawPath(electricPath, elecWhitePaint);
             }
 
-            // 2. Full realistic thunder-shock discharge crawling along the steel pillar shaft
             if (boltLife <= 0 || bodyH < 24f) return;
             float lifeFrac = boltLife / (float) Math.max(1, boltMax);
-            // Authentic lightning flicker envelope: blazing initial flash + rapid AC crackle + quick decay
             float flicker = (lifeFrac > 0.72f) ? 1.0f : (lifeFrac * (0.65f + 0.35f * (float) Math.abs(Math.sin(bgAmbientTick * 3.1f + (boltSeed & 15)))));
             if (flicker <= 0.08f) return;
 
             boltRnd.setSeed(boltSeed ^ 0x5A5A5A5AL);
-            float startY = isTop ? bodyRect.bottom : bodyRect.top;
-            float arcLen = Math.min(bodyH, Math.max(pipeWidth * 1.4f, bodyH * (0.48f + boltRnd.nextFloat() * 0.48f)));
+            float startY = isTop ? bodyRect.bottom : bodyRect.top, arcLen = Math.min(bodyH, Math.max(pipeWidth * 1.4f, bodyH * (0.48f + boltRnd.nextFloat() * 0.48f)));
             float endY = isTop ? Math.max(bodyRect.top + 8f, startY - arcLen) : Math.min(bodyRect.bottom - 8f, startY + arcLen);
-            float startX = bodyRect.left + bodyRect.width() * (0.14f + boltRnd.nextFloat() * 0.72f);
-            float endX = bodyRect.left + bodyRect.width() * (0.12f + boltRnd.nextFloat() * 0.76f);
+            float startX = bodyRect.left + bodyRect.width() * (0.14f + boltRnd.nextFloat() * 0.72f), endX = bodyRect.left + bodyRect.width() * (0.12f + boltRnd.nextFloat() * 0.76f);
 
-            // Surface steel flash reflection glow illuminating the pillar around the discharge
             pipeTempRect.set(bodyRect.left, Math.min(startY, endY), bodyRect.right, Math.max(startY, endY));
-            pipeDetailPaint.setColor(Color.parseColor("#00D8FF")); pipeDetailPaint.setAlpha((int) ((themeState == 0 ? 34 : 56) * flicker));
-            c.drawRect(pipeTempRect, pipeDetailPaint);
+            pipeDetailPaint.setColor(Color.parseColor("#00D8FF")); pipeDetailPaint.setAlpha((int) ((themeState == 0 ? 34 : 56) * flicker)); c.drawRect(pipeTempRect, pipeDetailPaint);
 
-            // Build fractal primary bolt + forked branches
             buildFractalThunderBolt(startX, startY, endX, endY, pipeWidth * 0.34f, boltSeed, 3.6f);
 
-            // Pass A: Wide electric blue-indigo atmospheric corona bloom
-            elecCoronaPaint.setColor(Color.parseColor("#2962FF")); elecCoronaPaint.setStrokeWidth(22f * flicker + 6f); elecCoronaPaint.setAlpha((int) (68 * flicker));
-            c.drawPath(electricPath, elecCoronaPaint);
-            elecCoronaPaint.setStrokeWidth(11f * flicker + 3f); elecCoronaPaint.setAlpha((int) (46 * flicker));
-            c.drawPath(boltBranchPath, elecCoronaPaint);
+            elecCoronaPaint.setColor(Color.parseColor("#2962FF")); elecCoronaPaint.setStrokeWidth(22f * flicker + 6f); elecCoronaPaint.setAlpha((int) (68 * flicker)); c.drawPath(electricPath, elecCoronaPaint);
+            elecCoronaPaint.setStrokeWidth(11f * flicker + 3f); elecCoronaPaint.setAlpha((int) (46 * flicker)); c.drawPath(boltBranchPath, elecCoronaPaint);
+            elecGlowPaint.setColor(Color.parseColor("#00E5FF")); elecGlowPaint.setStrokeWidth(11f * flicker + 3f); elecGlowPaint.setAlpha((int) (145 * flicker)); c.drawPath(electricPath, elecGlowPaint);
+            elecGlowPaint.setStrokeWidth(5.5f * flicker + 1.8f); elecGlowPaint.setAlpha((int) (115 * flicker)); c.drawPath(boltBranchPath, elecGlowPaint);
+            elecInnerPaint.setColor(Color.parseColor("#B8F8FF")); elecInnerPaint.setStrokeWidth(5.0f * flicker + 1.6f); elecInnerPaint.setAlpha((int) (220 * flicker)); c.drawPath(electricPath, elecInnerPaint);
+            elecInnerPaint.setStrokeWidth(2.6f * flicker + 1.0f); elecInnerPaint.setAlpha((int) (180 * flicker)); c.drawPath(boltBranchPath, elecInnerPaint);
+            elecWhitePaint.setColor(Color.WHITE); elecWhitePaint.setStrokeWidth(2.4f * flicker + 0.9f); elecWhitePaint.setAlpha((int) (255 * flicker)); c.drawPath(electricPath, elecWhitePaint);
+            elecWhitePaint.setStrokeWidth(1.3f * flicker + 0.6f); elecWhitePaint.setAlpha((int) (220 * flicker)); c.drawPath(boltBranchPath, elecWhitePaint);
 
-            // Pass B: Luminous cyan plasma sheath
-            elecGlowPaint.setColor(Color.parseColor("#00E5FF")); elecGlowPaint.setStrokeWidth(11f * flicker + 3f); elecGlowPaint.setAlpha((int) (145 * flicker));
-            c.drawPath(electricPath, elecGlowPaint);
-            elecGlowPaint.setStrokeWidth(5.5f * flicker + 1.8f); elecGlowPaint.setAlpha((int) (115 * flicker));
-            c.drawPath(boltBranchPath, elecGlowPaint);
-
-            // Pass C: High-voltage pale ice-cyan core
-            elecInnerPaint.setColor(Color.parseColor("#B8F8FF")); elecInnerPaint.setStrokeWidth(5.0f * flicker + 1.6f); elecInnerPaint.setAlpha((int) (220 * flicker));
-            c.drawPath(electricPath, elecInnerPaint);
-            elecInnerPaint.setStrokeWidth(2.6f * flicker + 1.0f); elecInnerPaint.setAlpha((int) (180 * flicker));
-            c.drawPath(boltBranchPath, elecInnerPaint);
-
-            // Pass D: Razor-sharp white-hot plasma filament
-            elecWhitePaint.setColor(Color.WHITE); elecWhitePaint.setStrokeWidth(2.4f * flicker + 0.9f); elecWhitePaint.setAlpha((int) (255 * flicker));
-            c.drawPath(electricPath, elecWhitePaint);
-            elecWhitePaint.setStrokeWidth(1.3f * flicker + 0.6f); elecWhitePaint.setAlpha((int) (220 * flicker));
-            c.drawPath(boltBranchPath, elecWhitePaint);
-
-            // Bright ionized contact spark flares at electrode & strike nodes + flying micro-sparks
             drawContactSpark(c, startX, startY, pipeWidth * 0.34f, flicker);
             drawContactSpark(c, endX, endY, pipeWidth * 0.28f, flicker * 0.92f);
             drawContactSpark(c, boltXs[8], boltYs[8], pipeWidth * 0.22f, flicker * 0.75f);
 
-            elecSparkPaint.setColor(Color.parseColor("#D8FCFF"));
-            elecSparkPaint.setAlpha((int) (230 * flicker));
+            elecSparkPaint.setColor(Color.parseColor("#D8FCFF")); elecSparkPaint.setAlpha((int) (230 * flicker));
             for (int sp = 0; sp < 4; sp++) {
                 float sx = boltXs[4 + sp * 3] + (float) Math.cos(boltSeed + sp * 2.3f + bgAmbientTick * 0.9f) * (pipeWidth * 0.24f * (1.2f - lifeFrac));
                 float sy = boltYs[4 + sp * 3] + (float) Math.sin(boltSeed + sp * 1.9f + bgAmbientTick * 0.9f) * (pipeWidth * 0.20f * (1.2f - lifeFrac));
@@ -1604,18 +1563,13 @@ public class FlappyBirdActivity extends AppCompatActivity {
         }
 
         private void drawDetailedPipe(Canvas canvas, RectF bodyRect, RectF capRect, boolean isTop, Pipe pipe) {
-            if (classicPipeBodyBmp == null || classicPipeBodyBmp.isRecycled() || clovPipeBodyBmp == null || clovPipeBodyBmp.isRecycled()) buildPipeBitmaps();
             Bitmap bodyBmp = (birdType == 0) ? classicPipeBodyBmp : clovPipeBodyBmp;
             Bitmap capBmp = (birdType == 0) ? classicPipeCapBmp : clovPipeCapBmp;
 
-            // 1. Draw 3D Cylindrical / Metallic Pipe Body
             if (bodyRect.bottom > bodyRect.top + 1f && bodyBmp != null && !bodyBmp.isRecycled()) {
                 canvas.drawBitmap(bodyBmp, null, bodyRect, bgBitmapPaint);
-
-                // For Clov Bird: draw machined horizontal industrial steel rib seams anchored relative to the cap
                 if (birdType == 1) {
-                    float seamStep = pipeWidth * 0.85f;
-                    float edgeIn = Math.max(3f, pipeWidth * 0.036f);
+                    float seamStep = pipeWidth * 0.85f, edgeIn = Math.max(3f, pipeWidth * 0.036f);
                     if (isTop) {
                         for (float sy = bodyRect.bottom - seamStep * 0.7f; sy > bodyRect.top + 12f; sy -= seamStep) {
                             pipeDetailPaint.setColor(Color.argb(140, 12, 18, 26)); canvas.drawRect(bodyRect.left + edgeIn, sy, bodyRect.right - edgeIn, sy + 3.2f, pipeDetailPaint);
@@ -1628,54 +1582,27 @@ public class FlappyBirdActivity extends AppCompatActivity {
                         }
                     }
                 }
-
-                // 2. Realistic ambient occlusion cast shadow directly adjacent to the beveled cap lip
                 float shadowH = Math.min(bodyRect.height(), capRect.height() * 0.55f);
                 if (shadowH > 2f) {
-                    float sTop = isTop ? (bodyRect.bottom - shadowH) : bodyRect.top;
-                    float sBot = isTop ? bodyRect.bottom : (bodyRect.top + shadowH);
-                    pipeShadowPaint.setShader(new LinearGradient(0, sTop, 0, sBot,
-                            isTop ? Color.TRANSPARENT : Color.argb(150, 5, 12, 10),
-                            isTop ? Color.argb(150, 5, 12, 10) : Color.TRANSPARENT, Shader.TileMode.CLAMP));
-                    canvas.drawRect(bodyRect.left, sTop, bodyRect.right, sBot, pipeShadowPaint);
-                    pipeShadowPaint.setShader(null);
+                    float sTop = isTop ? (bodyRect.bottom - shadowH) : bodyRect.top, sBot = isTop ? bodyRect.bottom : (bodyRect.top + shadowH);
+                    pipeShadowPaint.setShader(new LinearGradient(0, sTop, 0, sBot, isTop ? Color.TRANSPARENT : Color.argb(150, 5, 12, 10), isTop ? Color.argb(150, 5, 12, 10) : Color.TRANSPARENT, Shader.TileMode.CLAMP));
+                    canvas.drawRect(bodyRect.left, sTop, bodyRect.right, sBot, pipeShadowPaint); pipeShadowPaint.setShader(null);
                 }
             }
-
-            // 3. Draw 3D Beveled Sculpted Cap Collar
-            if (capBmp != null && !capBmp.isRecycled()) {
-                canvas.drawBitmap(capBmp, null, capRect, bgBitmapPaint);
-            }
-
-            // 4. For Clov Bird: Render realistic multi-layer fractal thunder shocks & Tesla sparks
-            if (birdType == 1) {
-                int bLife = isTop ? pipe.topBoltLife : pipe.botBoltLife;
-                int bMax = isTop ? pipe.topBoltMax : pipe.botBoltMax;
-                long bSeed = isTop ? pipe.topBoltSeed : pipe.botBoltSeed;
-                drawRealisticThunderShocks(canvas, bodyRect, capRect, isTop, bLife, bMax, bSeed);
-            }
+            if (capBmp != null && !capBmp.isRecycled()) canvas.drawBitmap(capBmp, null, capRect, bgBitmapPaint);
+            if (birdType == 1) drawRealisticThunderShocks(canvas, bodyRect, capRect, isTop, isTop ? pipe.topBoltLife : pipe.botBoltLife, isTop ? pipe.topBoltMax : pipe.botBoltMax, isTop ? pipe.topBoltSeed : pipe.botBoltSeed);
         }
 
-        private void drawDiamondStar(Canvas canvas, float x, float y, float s, int alpha) {
-            drawColoredDiamondStar(canvas, x, y, s, Color.parseColor("#FFFCE0"), alpha);
-        }
+        private void drawDiamondStar(Canvas canvas, float x, float y, float s, int alpha) { drawColoredDiamondStar(canvas, x, y, s, Color.parseColor("#FFFCE0"), alpha); }
 
         private void drawColoredDiamondStar(Canvas canvas, float x, float y, float s, int color, int alpha) {
-            wormStarPath.reset();
-            wormStarPath.moveTo(x, y - s); wormStarPath.quadTo(x, y, x + s, y);
-            wormStarPath.quadTo(x, y, x, y + s); wormStarPath.quadTo(x, y, x - s, y);
-            wormStarPath.quadTo(x, y, x, y - s); wormStarPath.close();
-            wormSparklePaint.setColor(color); wormSparklePaint.setAlpha(Math.max(0, Math.min(255, alpha)));
-            canvas.drawPath(wormStarPath, wormSparklePaint);
+            wormStarPath.reset(); wormStarPath.moveTo(x, y - s); wormStarPath.quadTo(x, y, x + s, y); wormStarPath.quadTo(x, y, x, y + s); wormStarPath.quadTo(x, y, x - s, y); wormStarPath.quadTo(x, y, x, y - s); wormStarPath.close();
+            wormSparklePaint.setColor(color); wormSparklePaint.setAlpha(Math.max(0, Math.min(255, alpha))); canvas.drawPath(wormStarPath, wormSparklePaint);
         }
 
         private void buildRegularPolygon(Path out, float cx, float cy, float r, int sides, float rotDeg) {
             out.reset();
-            for (int i = 0; i < sides; i++) {
-                double a = Math.toRadians(rotDeg + (360.0 / sides) * i);
-                float px = cx + (float) Math.cos(a) * r, py = cy + (float) Math.sin(a) * r;
-                if (i == 0) out.moveTo(px, py); else out.lineTo(px, py);
-            }
+            for (int i = 0; i < sides; i++) { double a = Math.toRadians(rotDeg + (360.0 / sides) * i); float px = cx + (float) Math.cos(a) * r, py = cy + (float) Math.sin(a) * r; if (i == 0) out.moveTo(px, py); else out.lineTo(px, py); }
             out.close();
         }
 
@@ -1686,7 +1613,6 @@ public class FlappyBirdActivity extends AppCompatActivity {
         }
 
         private void drawMajesticShieldBack(Canvas canvas) {
-            if (shieldGoldHaloBmp == null || shieldGoldHaloBmp.isRecycled()) buildShieldBitmaps();
             long now = System.currentTimeMillis(); float elapsed = (now - shieldStartTime) / 1000f, fade = getShieldFadeMultiplier(), pulse = 1.0f + 0.06f * (float) Math.sin(bgAmbientTick * 0.22f);
 
             if (elapsed >= 0f && elapsed < 0.45f) {
@@ -1697,9 +1623,10 @@ public class FlappyBirdActivity extends AppCompatActivity {
             }
 
             if (themeState == 2) {
-                float haloR = birdRadius * 3.45f * pulse; wormDrawRect.set(birdX - haloR, birdY - haloR, birdX + haloR, birdY + haloR);
-                bgBitmapPaint.setAlpha((int) (235 * fade)); canvas.drawBitmap(shieldCosmicHaloBmp, null, wormDrawRect, bgBitmapPaint); bgBitmapPaint.setAlpha(255);
-
+                if (shieldCosmicHaloBmp != null && !shieldCosmicHaloBmp.isRecycled()) {
+                    float haloR = birdRadius * 3.45f * pulse; wormDrawRect.set(birdX - haloR, birdY - haloR, birdX + haloR, birdY + haloR);
+                    bgBitmapPaint.setAlpha((int) (235 * fade)); canvas.drawBitmap(shieldCosmicHaloBmp, null, wormDrawRect, bgBitmapPaint); bgBitmapPaint.setAlpha(255);
+                }
                 if (birdType == 0) {
                     float domeR = birdRadius * 2.18f * pulse;
                     canvas.save(); canvas.translate(birdX, birdY); canvas.rotate(sparkleAngle * 0.35f);
@@ -1727,8 +1654,11 @@ public class FlappyBirdActivity extends AppCompatActivity {
                     for (int i = 0; i < 9; i++) { double a1 = Math.toRadians(rotInner + i * 40.0), a2 = Math.toRadians(rotInner + ((i + 4) % 9) * 40.0); canvas.drawLine(birdX + (float) Math.cos(a1) * polyR * 0.78f, birdY + (float) Math.sin(a1) * polyR * 0.78f, birdX + (float) Math.cos(a2) * polyR * 0.78f, birdY + (float) Math.sin(a2) * polyR * 0.78f, shieldCorePaint); }
                 }
             } else {
-                float haloR = birdRadius * 3.35f * pulse; wormDrawRect.set(birdX - haloR, birdY - haloR, birdX + haloR, birdY + haloR);
-                bgBitmapPaint.setAlpha((int) ((themeState == 0 ? 205 : 235) * fade)); canvas.drawBitmap(birdType == 1 ? shieldCrimsonHaloBmp : shieldGoldHaloBmp, null, wormDrawRect, bgBitmapPaint); bgBitmapPaint.setAlpha(255);
+                Bitmap halo = (birdType == 1) ? shieldCrimsonHaloBmp : shieldGoldHaloBmp;
+                if (halo != null && !halo.isRecycled()) {
+                    float haloR = birdRadius * 3.35f * pulse; wormDrawRect.set(birdX - haloR, birdY - haloR, birdX + haloR, birdY + haloR);
+                    bgBitmapPaint.setAlpha((int) ((themeState == 0 ? 205 : 235) * fade)); canvas.drawBitmap(halo, null, wormDrawRect, bgBitmapPaint); bgBitmapPaint.setAlpha(255);
+                }
                 float shieldR = birdRadius * (birdType == 1 ? 2.30f : 2.10f) * pulse;
                 canvas.save(); canvas.translate(birdX, birdY); canvas.rotate(sparkleAngle * 0.38f);
                 wormRayPaint.setColor(birdType == 1 ? Color.parseColor("#FFB300") : Color.parseColor("#FFF066")); wormRayPaint.setAlpha((int) ((themeState == 0 ? 55 : 72) * fade));
@@ -1819,7 +1749,6 @@ public class FlappyBirdActivity extends AppCompatActivity {
         }
 
         private void drawGoldenWorm(Canvas canvas, float cx, float cy, float r) {
-            if (goldSegBmp == null || goldSegBmp.isRecycled() || goldHeadBmp == null || goldHeadBmp.isRecycled()) buildGoldenWormBitmaps();
             float waveT = bgAmbientTick * 0.16f, hoverY = cy + (float) Math.sin(waveT * 0.75f) * (r * 0.16f), pulse = 1.0f + 0.13f * (float) Math.sin(waveT * 1.15f);
 
             canvas.save();
